@@ -1,5 +1,3 @@
-#!/usr/bin/env ruby
-require 'bundler/setup'
 require 'rxerces'
 
 puts "=== RXerces XPath Example ===\n\n"
