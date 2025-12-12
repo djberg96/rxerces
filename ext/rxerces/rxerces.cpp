@@ -5,6 +5,9 @@
 #include <xercesc/util/XMLString.hpp>
 #include <xercesc/framework/MemBufInputSource.hpp>
 #include <xercesc/framework/MemBufFormatTarget.hpp>
+#include <xercesc/util/XercesDefs.hpp>
+#include <xercesc/dom/DOMXPathResult.hpp>
+#include <xercesc/dom/DOMXPathExpression.hpp>
 #include <sstream>
 
 using namespace xercesc;
@@ -260,12 +263,66 @@ static VALUE document_to_s(VALUE self) {
 
 // document.xpath(path)
 static VALUE document_xpath(VALUE self, VALUE path) {
-    Check_Type(path, T_STRING);
+    DocumentWrapper* doc_wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, doc_wrapper);
 
-    // For now, return empty NodeSet (full XPath requires additional implementation)
+    if (!doc_wrapper->doc) {
+        NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+        wrapper->nodes_array = rb_ary_new();
+        return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+    }
+
+    Check_Type(path, T_STRING);
+    const char* xpath_str = StringValueCStr(path);
+
+    try {
+        DOMElement* root = doc_wrapper->doc->getDocumentElement();
+        if (!root) {
+            NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+            wrapper->nodes_array = rb_ary_new();
+            return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+        }
+
+        DOMXPathNSResolver* resolver = doc_wrapper->doc->createNSResolver(root);
+        DOMXPathExpression* expression = doc_wrapper->doc->createExpression(
+            XStr(xpath_str).unicodeForm(), resolver);
+
+        DOMXPathResult* result = expression->evaluate(
+            doc_wrapper->doc->getDocumentElement(),
+            DOMXPathResult::ORDERED_NODE_SNAPSHOT_TYPE,
+            NULL);
+
+        VALUE nodes_array = rb_ary_new();
+        XMLSize_t length = result->getSnapshotLength();
+
+        for (XMLSize_t i = 0; i < length; i++) {
+            result->snapshotItem(i);
+            DOMNode* node = result->getNodeValue();
+            if (node) {
+                rb_ary_push(nodes_array, wrap_node(node, self));
+            }
+        }
+
+        expression->release();
+        resolver->release();
+        result->release();
+
+        NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+        wrapper->nodes_array = nodes_array;
+        return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+
+    } catch (const DOMXPathException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "XPath error: %s", message.localForm());
+    } catch (const DOMException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "DOM error: %s", message.localForm());
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Unknown XPath error");
+    }
+
     NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
     wrapper->nodes_array = rb_ary_new();
-
     return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
 }
 
@@ -388,12 +445,67 @@ static VALUE node_children(VALUE self) {
 
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
-    Check_Type(path, T_STRING);
+    NodeWrapper* node_wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, node_wrapper);
 
-    // For basic implementation, return empty NodeSet
+    if (!node_wrapper->node) {
+        NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+        wrapper->nodes_array = rb_ary_new();
+        return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+    }
+
+    Check_Type(path, T_STRING);
+    const char* xpath_str = StringValueCStr(path);
+    VALUE doc_ref = rb_iv_get(self, "@document");
+
+    try {
+        DOMDocument* doc = node_wrapper->node->getOwnerDocument();
+        if (!doc) {
+            NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+            wrapper->nodes_array = rb_ary_new();
+            return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+        }
+
+        DOMXPathNSResolver* resolver = doc->createNSResolver(node_wrapper->node);
+        DOMXPathExpression* expression = doc->createExpression(
+            XStr(xpath_str).unicodeForm(), resolver);
+
+        DOMXPathResult* result = expression->evaluate(
+            node_wrapper->node,
+            DOMXPathResult::ORDERED_NODE_SNAPSHOT_TYPE,
+            NULL);
+
+        VALUE nodes_array = rb_ary_new();
+        XMLSize_t length = result->getSnapshotLength();
+
+        for (XMLSize_t i = 0; i < length; i++) {
+            result->snapshotItem(i);
+            DOMNode* node = result->getNodeValue();
+            if (node) {
+                rb_ary_push(nodes_array, wrap_node(node, doc_ref));
+            }
+        }
+
+        expression->release();
+        resolver->release();
+        result->release();
+
+        NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+        wrapper->nodes_array = nodes_array;
+        return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+
+    } catch (const DOMXPathException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "XPath error: %s", message.localForm());
+    } catch (const DOMException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "DOM error: %s", message.localForm());
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Unknown XPath error");
+    }
+
     NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
     wrapper->nodes_array = rb_ary_new();
-
     return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
 }
 

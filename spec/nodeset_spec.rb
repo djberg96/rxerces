@@ -12,14 +12,17 @@ RSpec.describe RXerces::XML::NodeSet do
   end
 
   let(:doc) { RXerces::XML::Document.parse(xml) }
-
-  # For basic testing, we'll use an empty nodeset since full XPath isn't implemented
   let(:nodeset) { doc.xpath('//item') }
+  let(:empty_nodeset) { doc.xpath('//nonexistent') }
 
   describe "#length" do
     it "returns the number of nodes" do
       expect(nodeset.length).to be_a(Integer)
-      expect(nodeset.length).to be >= 0
+      expect(nodeset.length).to eq(3)
+    end
+
+    it "returns 0 for empty nodeset" do
+      expect(empty_nodeset.length).to eq(0)
     end
   end
 
@@ -30,8 +33,18 @@ RSpec.describe RXerces::XML::NodeSet do
   end
 
   describe "#[]" do
+    it "returns node at index" do
+      item = nodeset[0]
+      expect(item).to be_a(RXerces::XML::Element)
+      expect(item.text.strip).to eq('First')
+    end
+
+    it "returns nil for out of bounds index" do
+      expect(nodeset[999]).to be_nil
+    end
+
     it "returns nil for empty nodeset" do
-      expect(nodeset[0]).to be_nil
+      expect(empty_nodeset[0]).to be_nil
     end
   end
 
@@ -44,10 +57,24 @@ RSpec.describe RXerces::XML::NodeSet do
       expect(nodeset.each).to be_a(Enumerator)
     end
 
-    it "yields nothing for empty nodeset" do
+    it "yields all items in nodeset" do
       count = 0
       nodeset.each { count += 1 }
+      expect(count).to eq(3)
+    end
+
+    it "yields nothing for empty nodeset" do
+      count = 0
+      empty_nodeset.each { count += 1 }
       expect(count).to eq(0)
+    end
+
+    it "can iterate and access node properties" do
+      texts = []
+      nodeset.each do |item|
+        texts << item.text.strip
+      end
+      expect(texts).to eq(['First', 'Second', 'Third'])
     end
   end
 
@@ -55,6 +82,7 @@ RSpec.describe RXerces::XML::NodeSet do
     it "converts to array" do
       result = nodeset.to_a
       expect(result).to be_an(Array)
+      expect(result.length).to eq(3)
     end
   end
 

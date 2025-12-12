@@ -150,6 +150,58 @@ puts xml_string
 puts doc.to_s
 ```
 
+### XPath Queries
+
+RXerces supports XPath queries using Xerces-C's XPath implementation:
+
+```ruby
+xml = <<-XML
+  <library>
+    <book>
+      <title>1984</title>
+      <author>George Orwell</author>
+    </book>
+    <book>
+      <title>Brave New World</title>
+      <author>Aldous Huxley</author>
+    </book>
+  </library>
+XML
+
+doc = RXerces.XML(xml)
+
+# Find all book elements
+books = doc.xpath('//book')
+puts books.length  # => 2
+
+# Find all titles
+titles = doc.xpath('//title')
+titles.each do |title|
+  puts title.text.strip
+end
+
+# Use path expressions
+authors = doc.xpath('/library/book/author')
+puts authors.length  # => 2
+
+# Query from a specific node
+first_book = books[0]
+title = first_book.xpath('.//title').first
+puts title.text  # => "1984"
+```
+
+**Note on XPath Support**: Xerces-C implements the XML Schema XPath subset, not full XPath 1.0. Supported features include:
+- Basic path expressions (`/`, `//`, `.`, `..`)
+- Element selection by name
+- Descendant and child axes
+
+Not supported:
+- Attribute predicates (`[@attribute="value"]`)
+- XPath functions (`last()`, `position()`, `text()`)
+- Comparison operators in predicates
+
+For more complex queries, you can combine basic XPath with Ruby's `select` and `find` methods.
+
 ## API Reference
 
 ### RXerces Module
