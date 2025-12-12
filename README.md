@@ -301,5 +301,9 @@ was mainly a reaction to the lack of maintainers for libxml2, and the generally
 sorry state of that library in general. Since nokogiri uses it under the hood,
 I thought it best to create an alternative.
 
+## Copyright
+(C) 2025, Daniel J. Berger
+All Rights Reserved
+
 ## Author
 * Daniel J. Berger
