@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        ruby: ['3.2', '3.3', '3.4']
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby }}
+        bundler-cache: true
+
+    - name: Install Xerces-C (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libxerces-c-dev
+
+    - name: Install Xerces-C (macOS)
+      if: runner.os == 'macOS'
+      run: brew install xerces-c
+
+    - name: Install dependencies
+      run: bundle install
+
+    - name: Compile extension
+      run: bundle exec rake compile
+
+    - name: Run tests
+      run: bundle exec rspec
+
+    - name: Run basic usage example
+      run: bundle exec ruby examples/basic_usage.rb
+
+    - name: Run XPath example
+      run: bundle exec ruby examples/xpath_example.rb
