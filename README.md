@@ -1,3 +1,5 @@
+[![Ruby](https://github.com/djberg96/rxerces/actions/workflows/ci.yml/badge.svg)](https://github.com/djberg96/rxerces/actions/workflows/ci.yml)
+
 # RXerces
 
 A Ruby XML library with a Nokogiri-compatible API, powered by Apache Xerces-C instead of libxml2.
