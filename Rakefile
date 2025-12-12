@@ -20,6 +20,9 @@ Rake::ExtensionTask.new("rxerces") do |ext|
   ext.lib_dir = "lib/rxerces"
 end
 
-RSpec::Core::RakeTask.new(:spec)
+RSpec::Core::RakeTask.new(:spec) do |t|
+  t.verbose = false
+  t.rspec_opts = '-f documentation -w'
+end
 
 task default: [:compile, :spec]
