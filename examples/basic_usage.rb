@@ -1,5 +1,3 @@
-#!/usr/bin/env ruby
-require 'bundler/setup'
 require 'rxerces'
 
 puts "=== RXerces Basic Usage Example ===\n\n"
