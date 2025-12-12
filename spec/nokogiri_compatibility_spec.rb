@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'rxerces/nokogiri'
 
 RSpec.describe "Nokogiri compatibility" do
   let(:simple_xml) { '<root><child>Hello</child></root>' }

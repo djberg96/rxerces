@@ -1,4 +1,5 @@
 require 'rxerces'
+require 'rxerces/nokogiri'
 
 puts "=== RXerces XPath Example ===\n\n"
 

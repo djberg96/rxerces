@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'rxerces/nokogiri'
 
 RSpec.describe "XPath support" do
   let(:xml) do
