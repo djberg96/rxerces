@@ -295,3 +295,11 @@ MIT License - see LICENSE file for details
 - Built with [Apache Xerces-C](https://xerces.apache.org/xerces-c/)
 - API inspired by [Nokogiri](https://nokogiri.org/)
 
+## Misc
+This library was almost entirely written using AI (Claude Sonnet 4.5). It
+was mainly a reaction to the lack of maintainers for libxml2, and the generally
+sorry state of that library in general. Since nokogiri uses it under the hood,
+I thought it best to create an alternative.
+
+## Author
+* Daniel J. Berger
