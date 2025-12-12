@@ -75,10 +75,10 @@ puts root.name  # => "root"
 
 ### Nokogiri Compatibility
 
-RXerces provides a `Nokogiri` module for drop-in compatibility:
+RXerces provides optional Nokogiri compatibility. Require `rxerces/nokogiri` to enable drop-in replacement:
 
 ```ruby
-require 'rxerces'
+require 'rxerces/nokogiri'
 
 # Use Nokogiri syntax
 doc = Nokogiri.XML('<root><child>text</child></root>')
@@ -87,6 +87,8 @@ puts doc.root.name  # => "root"
 # Classes are aliased
 Nokogiri::XML::Document == RXerces::XML::Document  # => true
 ```
+
+**Note:** If you don't need Nokogiri compatibility, just `require 'rxerces'` and use the `RXerces` module directly.
 
 ### Working with Nodes
 
