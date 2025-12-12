@@ -555,6 +555,7 @@ extern "C" void Init_rxerces(void) {
     rb_mXML = rb_define_module_under(rb_mRXerces, "XML");
 
     rb_cDocument = rb_define_class_under(rb_mXML, "Document", rb_cObject);
+    rb_undef_alloc_func(rb_cDocument);
     rb_define_singleton_method(rb_cDocument, "parse", RUBY_METHOD_FUNC(document_parse), 1);
     rb_define_method(rb_cDocument, "root", RUBY_METHOD_FUNC(document_root), 0);
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
@@ -562,6 +563,7 @@ extern "C" void Init_rxerces(void) {
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
 
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
+    rb_undef_alloc_func(rb_cNode);
     rb_define_method(rb_cNode, "name", RUBY_METHOD_FUNC(node_name), 0);
     rb_define_method(rb_cNode, "text", RUBY_METHOD_FUNC(node_text), 0);
     rb_define_method(rb_cNode, "content", RUBY_METHOD_FUNC(node_text), 0);
@@ -573,9 +575,13 @@ extern "C" void Init_rxerces(void) {
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
+    rb_undef_alloc_func(rb_cElement);
+
     rb_cText = rb_define_class_under(rb_mXML, "Text", rb_cNode);
+    rb_undef_alloc_func(rb_cText);
 
     rb_cNodeSet = rb_define_class_under(rb_mXML, "NodeSet", rb_cObject);
+    rb_undef_alloc_func(rb_cNodeSet);
     rb_define_method(rb_cNodeSet, "length", RUBY_METHOD_FUNC(nodeset_length), 0);
     rb_define_method(rb_cNodeSet, "size", RUBY_METHOD_FUNC(nodeset_length), 0);
     rb_define_method(rb_cNodeSet, "[]", RUBY_METHOD_FUNC(nodeset_at), 1);
