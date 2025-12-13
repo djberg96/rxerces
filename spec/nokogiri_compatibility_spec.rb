@@ -61,6 +61,12 @@ RSpec.describe "Nokogiri compatibility" do
     end
   end
 
+  describe "Nokogiri::XML::Schema" do
+    it "is an alias for RXerces::XML::Schema" do
+      expect(Nokogiri::XML::Schema).to eq(RXerces::XML::Schema)
+    end
+  end
+
   describe "API compatibility" do
     let(:doc) { Nokogiri.XML(simple_xml) }
 
@@ -93,6 +99,69 @@ RSpec.describe "Nokogiri compatibility" do
     it "provides node children method" do
       children = doc.root.children
       expect(children).to be_an(Array)
+    end
+  end
+
+  describe "Schema validation compatibility" do
+    let(:xsd) do
+      <<~XSD
+        <?xml version="1.0"?>
+        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+          <xs:element name="person">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="name" type="xs:string"/>
+                <xs:element name="age" type="xs:integer"/>
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+        </xs:schema>
+      XSD
+    end
+
+    let(:valid_xml) do
+      <<~XML
+        <?xml version="1.0"?>
+        <person>
+          <name>John</name>
+          <age>30</age>
+        </person>
+      XML
+    end
+
+    let(:invalid_xml) do
+      <<~XML
+        <?xml version="1.0"?>
+        <person>
+          <name>Jane</name>
+          <age>invalid</age>
+        </person>
+      XML
+    end
+
+    it "provides Schema.from_string method" do
+      schema = Nokogiri::XML::Schema.from_string(xsd)
+      expect(schema).to be_a(Nokogiri::XML::Schema)
+    end
+
+    it "provides Schema.from_document method" do
+      doc = Nokogiri::XML.parse(xsd)
+      schema = Nokogiri::XML::Schema.from_document(doc)
+      expect(schema).to be_a(Nokogiri::XML::Schema)
+    end
+
+    it "validates a valid document" do
+      schema = Nokogiri::XML::Schema.from_string(xsd)
+      doc = Nokogiri::XML.parse(valid_xml)
+      errors = doc.validate(schema)
+      expect(errors).to be_empty
+    end
+
+    it "returns errors for an invalid document" do
+      schema = Nokogiri::XML::Schema.from_string(xsd)
+      doc = Nokogiri::XML.parse(invalid_xml)
+      errors = doc.validate(schema)
+      expect(errors).not_to be_empty
     end
   end
 end

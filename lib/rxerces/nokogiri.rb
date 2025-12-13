@@ -18,6 +18,7 @@ module Nokogiri
     Element = RXerces::XML::Element
     Text = RXerces::XML::Text
     NodeSet = RXerces::XML::NodeSet
+    Schema = RXerces::XML::Schema
   end
 
   # Top-level parse method for compatibility
