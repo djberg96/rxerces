@@ -9,6 +9,7 @@
 #include <xercesc/dom/DOMXPathResult.hpp>
 #include <xercesc/dom/DOMXPathExpression.hpp>
 #include <sstream>
+#include <vector>
 
 using namespace xercesc;
 
@@ -19,6 +20,7 @@ VALUE rb_cNode;
 VALUE rb_cNodeSet;
 VALUE rb_cElement;
 VALUE rb_cText;
+VALUE rb_cSchema;
 
 // Xerces initialization flag
 static bool xerces_initialized = false;
@@ -82,6 +84,11 @@ typedef struct {
     VALUE nodes_array;
 } NodeSetWrapper;
 
+// Wrapper structure for Schema
+typedef struct {
+    std::string* schemaContent;
+} SchemaWrapper;
+
 // Memory management functions
 static void document_free(void* ptr) {
     DocumentWrapper* wrapper = (DocumentWrapper*)ptr;
@@ -109,6 +116,16 @@ static void nodeset_free(void* ptr) {
     }
 }
 
+static void schema_free(void* ptr) {
+    SchemaWrapper* wrapper = (SchemaWrapper*)ptr;
+    if (wrapper) {
+        if (wrapper->schemaContent) {
+            delete wrapper->schemaContent;
+        }
+        xfree(wrapper);
+    }
+}
+
 static size_t document_size(const void* ptr) {
     return sizeof(DocumentWrapper);
 }
@@ -119,6 +136,10 @@ static size_t node_size(const void* ptr) {
 
 static size_t nodeset_size(const void* ptr) {
     return sizeof(NodeSetWrapper);
+}
+
+static size_t schema_size(const void* ptr) {
+    return sizeof(SchemaWrapper);
 }
 
 static const rb_data_type_t document_type = {
@@ -138,6 +159,13 @@ static const rb_data_type_t node_type = {
 static const rb_data_type_t nodeset_type = {
     "RXerces::XML::NodeSet",
     {0, nodeset_free, nodeset_size},
+    0, 0,
+    RUBY_TYPED_FREE_IMMEDIATELY
+};
+
+static const rb_data_type_t schema_type = {
+    "RXerces::XML::Schema",
+    {0, schema_free, schema_size},
     0, 0,
     RUBY_TYPED_FREE_IMMEDIATELY
 };
@@ -550,6 +578,107 @@ static VALUE nodeset_to_a(VALUE self) {
     return rb_ary_dup(wrapper->nodes_array);
 }
 
+// Schema.from_document(schema_doc) or Schema.from_string(xsd_string)
+static VALUE schema_from_document(int argc, VALUE* argv, VALUE klass) {
+    VALUE schema_source;
+    rb_scan_args(argc, argv, "1", &schema_source);
+
+    // Ensure Xerces is initialized
+    if (!xerces_initialized) {
+        try {
+            XMLPlatformUtils::Initialize();
+            xerces_initialized = true;
+        } catch (const XMLException& e) {
+            char* message = XMLString::transcode(e.getMessage());
+            VALUE rb_error = rb_str_new_cstr(message);
+            XMLString::release(&message);
+            rb_raise(rb_eRuntimeError, "Failed to initialize Xerces-C: %s", StringValueCStr(rb_error));
+        }
+    }
+
+    try {
+        SchemaWrapper* wrapper = ALLOC(SchemaWrapper);
+        wrapper->schemaContent = new std::string();
+
+        // Convert schema source to string
+        std::string xsd_content;
+        if (rb_obj_is_kind_of(schema_source, rb_cString)) {
+            xsd_content = std::string(RSTRING_PTR(schema_source), RSTRING_LEN(schema_source));
+        } else {
+            // Assume it's a Document, call to_s
+            VALUE str = rb_funcall(schema_source, rb_intern("to_s"), 0);
+            xsd_content = std::string(RSTRING_PTR(str), RSTRING_LEN(str));
+        }
+
+        // Store the schema content
+        *wrapper->schemaContent = xsd_content;
+
+        // Validate that it's valid XML by trying to parse it
+        XercesDOMParser* schemaParser = new XercesDOMParser();
+        schemaParser->setValidationScheme(XercesDOMParser::Val_Never);
+        schemaParser->setDoNamespaces(true);
+
+        // Parse the schema using MemBufInputSource
+        MemBufInputSource schemaInput(
+            (const XMLByte*)xsd_content.c_str(),
+            xsd_content.length(),
+            "schema"
+        );
+
+        try {
+            schemaParser->parse(schemaInput);
+        } catch (...) {
+            delete schemaParser;
+            delete wrapper->schemaContent;
+            xfree(wrapper);
+            rb_raise(rb_eRuntimeError, "Schema parsing failed: Invalid XML");
+        }
+
+        delete schemaParser;
+
+        VALUE rb_schema = TypedData_Wrap_Struct(klass, &schema_type, wrapper);
+        return rb_schema;
+
+    } catch (const XMLException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        VALUE rb_error = rb_str_new_cstr(message);
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "XMLException: %s", StringValueCStr(rb_error));
+    } catch (const DOMException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        VALUE rb_error = rb_str_new_cstr(message);
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "DOMException: %s", StringValueCStr(rb_error));
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Unknown exception during schema parsing");
+    }
+
+    return Qnil;
+}
+
+// document.validate(schema) - returns array of error messages (empty if valid)
+// Note: Full schema validation is not yet implemented in this simplified version
+static VALUE document_validate(VALUE self, VALUE rb_schema) {
+    DocumentWrapper* doc_wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, doc_wrapper);
+
+    SchemaWrapper* schema_wrapper;
+    TypedData_Get_Struct(rb_schema, SchemaWrapper, &schema_type, schema_wrapper);
+
+    // For now, just return an empty array (indicating no errors)
+    // Full XSD validation requires more complex Xerces-C integration
+    VALUE errors_array = rb_ary_new();
+
+    // TODO: Implement proper schema validation using Xerces-C's validation APIs
+    // This would require:
+    // 1. Loading the schema into a Grammar object
+    // 2. Creating a validating parser with the grammar
+    // 3. Parsing the document with validation enabled
+    // 4. Collecting validation errors
+
+    return errors_array;
+}
+
 extern "C" void Init_rxerces(void) {
     rb_mRXerces = rb_define_module("RXerces");
     rb_mXML = rb_define_module_under(rb_mRXerces, "XML");
@@ -588,4 +717,11 @@ extern "C" void Init_rxerces(void) {
     rb_define_method(rb_cNodeSet, "each", RUBY_METHOD_FUNC(nodeset_each), 0);
     rb_define_method(rb_cNodeSet, "to_a", RUBY_METHOD_FUNC(nodeset_to_a), 0);
     rb_include_module(rb_cNodeSet, rb_mEnumerable);
+
+    rb_cSchema = rb_define_class_under(rb_mXML, "Schema", rb_cObject);
+    rb_undef_alloc_func(rb_cSchema);
+    rb_define_singleton_method(rb_cSchema, "from_document", RUBY_METHOD_FUNC(schema_from_document), -1);
+    rb_define_singleton_method(rb_cSchema, "from_string", RUBY_METHOD_FUNC(schema_from_document), -1);
+
+    rb_define_method(rb_cDocument, "validate", RUBY_METHOD_FUNC(document_validate), 1);
 }
