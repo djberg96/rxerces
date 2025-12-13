@@ -58,18 +58,19 @@ RSpec.describe RXerces::XML::Schema do
   describe 'validation' do
     let(:schema) { described_class.from_string(simple_xsd) }
 
-    it 'validates a document (returns empty array for now)' do
+    it 'validates a valid document' do
       doc = RXerces::XML::Document.parse(valid_xml)
       errors = doc.validate(schema)
       expect(errors).to be_a(Array)
-      # Note: Full validation not yet implemented, so we just check it returns an array
+      expect(errors).to be_empty
     end
 
-    it 'validates an invalid document (returns empty array for now)' do
+    it 'returns validation errors for an invalid document' do
       doc = RXerces::XML::Document.parse(invalid_xml)
       errors = doc.validate(schema)
       expect(errors).to be_a(Array)
-      # Note: Full validation not yet implemented
+      expect(errors).not_to be_empty
+      expect(errors.first).to include('not-a-number')
     end
   end
 end

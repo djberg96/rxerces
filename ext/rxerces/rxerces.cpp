@@ -8,6 +8,8 @@
 #include <xercesc/util/XercesDefs.hpp>
 #include <xercesc/dom/DOMXPathResult.hpp>
 #include <xercesc/dom/DOMXPathExpression.hpp>
+#include <xercesc/sax/ErrorHandler.hpp>
+#include <xercesc/sax/SAXParseException.hpp>
 #include <sstream>
 #include <vector>
 
@@ -88,6 +90,34 @@ typedef struct {
 typedef struct {
     std::string* schemaContent;
 } SchemaWrapper;
+
+// Error handler for schema validation
+class ValidationErrorHandler : public ErrorHandler {
+public:
+    std::vector<std::string> errors;
+
+    void warning(const SAXParseException& e) {
+        char* msg = XMLString::transcode(e.getMessage());
+        errors.push_back(std::string("Warning: ") + msg);
+        XMLString::release(&msg);
+    }
+
+    void error(const SAXParseException& e) {
+        char* msg = XMLString::transcode(e.getMessage());
+        errors.push_back(std::string("Error: ") + msg);
+        XMLString::release(&msg);
+    }
+
+    void fatalError(const SAXParseException& e) {
+        char* msg = XMLString::transcode(e.getMessage());
+        errors.push_back(std::string("Fatal: ") + msg);
+        XMLString::release(&msg);
+    }
+
+    void resetErrors() {
+        errors.clear();
+    }
+};
 
 // Memory management functions
 static void document_free(void* ptr) {
@@ -657,7 +687,6 @@ static VALUE schema_from_document(int argc, VALUE* argv, VALUE klass) {
 }
 
 // document.validate(schema) - returns array of error messages (empty if valid)
-// Note: Full schema validation is not yet implemented in this simplified version
 static VALUE document_validate(VALUE self, VALUE rb_schema) {
     DocumentWrapper* doc_wrapper;
     TypedData_Get_Struct(self, DocumentWrapper, &document_type, doc_wrapper);
@@ -665,21 +694,102 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     SchemaWrapper* schema_wrapper;
     TypedData_Get_Struct(rb_schema, SchemaWrapper, &schema_type, schema_wrapper);
 
-    // For now, just return an empty array (indicating no errors)
-    // Full XSD validation requires more complex Xerces-C integration
-    VALUE errors_array = rb_ary_new();
+    try {
+        // Serialize the document to UTF-8 for validation
+        DOMImplementation* impl = DOMImplementationRegistry::getDOMImplementation(XMLString::transcode("LS"));
+        DOMLSSerializer* serializer = ((DOMImplementationLS*)impl)->createLSSerializer();
 
-    // TODO: Implement proper schema validation using Xerces-C's validation APIs
-    // This would require:
-    // 1. Loading the schema into a Grammar object
-    // 2. Creating a validating parser with the grammar
-    // 3. Parsing the document with validation enabled
-    // 4. Collecting validation errors
+        // Use a MemBufFormatTarget to get UTF-8 encoded output
+        MemBufFormatTarget target;
+        DOMLSOutput* output = ((DOMImplementationLS*)impl)->createLSOutput();
+        output->setByteStream(&target);
 
-    return errors_array;
-}
+        serializer->write(doc_wrapper->doc, output);
 
-extern "C" void Init_rxerces(void) {
+        // Get the UTF-8 content
+        std::string xml_content((const char*)target.getRawBuffer(), target.getLen());
+
+        output->release();
+        serializer->release();
+
+        // Create a validating parser
+        XercesDOMParser* validator = new XercesDOMParser();
+        validator->setValidationScheme(XercesDOMParser::Val_Always);
+        validator->setDoNamespaces(true);
+        validator->setDoSchema(true);
+        validator->setValidationSchemaFullChecking(true);
+
+        ValidationErrorHandler errorHandler;
+        validator->setErrorHandler(&errorHandler);
+
+        // Create a combined input with both the schema and the document
+        // First, we need to add schema location to the document
+        std::string schema_location = "http://example.com/schema";
+
+        // Create memory buffers for both schema and document
+        MemBufInputSource schemaSource(
+            (const XMLByte*)schema_wrapper->schemaContent->c_str(),
+            schema_wrapper->schemaContent->length(),
+            "schema.xsd"
+        );
+
+        // Load the schema grammar
+        try {
+            validator->loadGrammar(schemaSource, Grammar::SchemaGrammarType, true);
+            validator->setExternalNoNamespaceSchemaLocation("schema.xsd");
+            validator->useCachedGrammarInParse(true);
+        } catch (...) {
+            // If grammar loading fails, just note it
+            errorHandler.errors.push_back("Warning: Schema grammar could not be loaded");
+        }
+
+        // Now parse and validate the document
+        MemBufInputSource docSource(
+            (const XMLByte*)xml_content.c_str(),
+            xml_content.length(),
+            "document.xml"
+        );
+
+        try {
+            validator->parse(docSource);
+        } catch (const XMLException& e) {
+            char* message = XMLString::transcode(e.getMessage());
+            errorHandler.errors.push_back(std::string("XMLException: ") + message);
+            XMLString::release(&message);
+        } catch (const DOMException& e) {
+            char* message = XMLString::transcode(e.getMessage());
+            errorHandler.errors.push_back(std::string("DOMException: ") + message);
+            XMLString::release(&message);
+        } catch (...) {
+            errorHandler.errors.push_back("Unknown parsing exception");
+        }
+
+        delete validator;
+
+        // Return array of error messages
+        VALUE errors_array = rb_ary_new();
+        for (const auto& err : errorHandler.errors) {
+            rb_ary_push(errors_array, rb_str_new_cstr(err.c_str()));
+        }
+
+        return errors_array;
+
+    } catch (const XMLException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        VALUE rb_error = rb_str_new_cstr(message);
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "XMLException during validation: %s", StringValueCStr(rb_error));
+    } catch (const DOMException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        VALUE rb_error = rb_str_new_cstr(message);
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "DOMException during validation: %s", StringValueCStr(rb_error));
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Unknown exception during validation");
+    }
+
+    return Qnil;
+}extern "C" void Init_rxerces(void) {
     rb_mRXerces = rb_define_module("RXerces");
     rb_mXML = rb_define_module_under(rb_mRXerces, "XML");
 
