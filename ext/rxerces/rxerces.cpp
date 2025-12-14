@@ -556,6 +556,42 @@ static VALUE node_attributes(VALUE self) {
     return hash;
 }
 
+// node.next_sibling
+static VALUE node_next_sibling(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    DOMNode* next = wrapper->node->getNextSibling();
+    if (!next) {
+        return Qnil;
+    }
+
+    VALUE doc_ref = rb_iv_get(self, "@document");
+    return wrap_node(next, doc_ref);
+}
+
+// node.previous_sibling
+static VALUE node_previous_sibling(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    DOMNode* prev = wrapper->node->getPreviousSibling();
+    if (!prev) {
+        return Qnil;
+    }
+
+    VALUE doc_ref = rb_iv_get(self, "@document");
+    return wrap_node(prev, doc_ref);
+}
+
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
     NodeWrapper* node_wrapper;
@@ -868,6 +904,8 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "children", RUBY_METHOD_FUNC(node_children), 0);
     rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
     rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
+    rb_define_method(rb_cNode, "next_sibling", RUBY_METHOD_FUNC(node_next_sibling), 0);
+    rb_define_method(rb_cNode, "previous_sibling", RUBY_METHOD_FUNC(node_previous_sibling), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
