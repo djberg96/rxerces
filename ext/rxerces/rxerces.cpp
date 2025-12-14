@@ -703,6 +703,46 @@ static VALUE node_remove(VALUE self) {
     return self;
 }
 
+// node.inner_html / node.inner_xml - returns XML content of children
+static VALUE node_inner_html(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return rb_str_new_cstr("");
+    }
+
+    try {
+        DOMImplementation* impl = DOMImplementationRegistry::getDOMImplementation(XStr("LS").unicodeForm());
+        DOMLSSerializer* serializer = ((DOMImplementationLS*)impl)->createLSSerializer();
+
+        // Build a string by serializing each child
+        std::string result;
+        DOMNodeList* children = wrapper->node->getChildNodes();
+        XMLSize_t count = children->getLength();
+
+        for (XMLSize_t i = 0; i < count; i++) {
+            DOMNode* child = children->item(i);
+            XMLCh* xml_str = serializer->writeToString(child);
+            CharStr utf8_str(xml_str);
+            result += utf8_str.localForm();
+            XMLString::release(&xml_str);
+        }
+
+        serializer->release();
+        return rb_str_new_cstr(result.c_str());
+    } catch (const DOMException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        VALUE rb_error = rb_str_new_cstr(message);
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "Failed to serialize inner content: %s", StringValueCStr(rb_error));
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Failed to serialize inner content");
+    }
+
+    return rb_str_new_cstr("");
+}
+
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
     NodeWrapper* node_wrapper;
@@ -1021,6 +1061,8 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "add_child", RUBY_METHOD_FUNC(node_add_child), 1);
     rb_define_method(rb_cNode, "remove", RUBY_METHOD_FUNC(node_remove), 0);
     rb_define_method(rb_cNode, "unlink", RUBY_METHOD_FUNC(node_remove), 0);
+    rb_define_method(rb_cNode, "inner_html", RUBY_METHOD_FUNC(node_inner_html), 0);
+    rb_define_method(rb_cNode, "inner_xml", RUBY_METHOD_FUNC(node_inner_html), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);

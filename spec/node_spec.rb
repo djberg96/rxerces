@@ -373,4 +373,41 @@ RSpec.describe RXerces::XML::Node do
       expect(result).to be_a(RXerces::XML::NodeSet)
     end
   end
+
+  describe "#inner_html" do
+    it "returns the XML content of children without parent tags" do
+      person = root.xpath('//person').first
+      inner = person.inner_html
+      expect(inner).to include('<age>')
+      expect(inner).to include('<city>')
+      expect(inner).not_to include('<person')
+    end
+
+    it "returns empty string for nodes without children" do
+      age = root.xpath('//age').first
+      inner = age.inner_html
+      expect(inner).to eq('30')
+    end
+
+    it "includes multiple children" do
+      person = root.xpath('//person').first
+      inner = person.inner_html
+      expect(inner).to include('<age>30</age>')
+      expect(inner).to include('<city>New York</city>')
+    end
+  end
+
+  describe "#inner_xml" do
+    it "is an alias for inner_html" do
+      person = root.xpath('//person').first
+      expect(person.inner_xml).to eq(person.inner_html)
+    end
+
+    it "returns the same XML content" do
+      person = root.xpath('//person').first
+      inner = person.inner_xml
+      expect(inner).to include('<age>')
+      expect(inner).to include('<city>')
+    end
+  end
 end
