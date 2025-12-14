@@ -519,6 +519,43 @@ static VALUE node_parent(VALUE self) {
     return wrap_node(parent, doc_ref);
 }
 
+// node.attributes - returns hash of all attributes (only for element nodes)
+static VALUE node_attributes(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node || wrapper->node->getNodeType() != DOMNode::ELEMENT_NODE) {
+        return rb_hash_new();
+    }
+
+    DOMElement* element = dynamic_cast<DOMElement*>(wrapper->node);
+    DOMNamedNodeMap* attributes = element->getAttributes();
+
+    if (!attributes) {
+        return rb_hash_new();
+    }
+
+    VALUE hash = rb_hash_new();
+    XMLSize_t length = attributes->getLength();
+
+    for (XMLSize_t i = 0; i < length; i++) {
+        DOMNode* attr = attributes->item(i);
+        if (attr) {
+            const XMLCh* name = attr->getNodeName();
+            const XMLCh* value = attr->getNodeValue();
+
+            CharStr attr_name(name);
+            CharStr attr_value(value);
+
+            rb_hash_aset(hash,
+                        rb_str_new_cstr(attr_name.localForm()),
+                        rb_str_new_cstr(attr_value.localForm()));
+        }
+    }
+
+    return hash;
+}
+
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
     NodeWrapper* node_wrapper;
@@ -830,6 +867,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "[]=", RUBY_METHOD_FUNC(node_set_attribute), 2);
     rb_define_method(rb_cNode, "children", RUBY_METHOD_FUNC(node_children), 0);
     rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
+    rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
