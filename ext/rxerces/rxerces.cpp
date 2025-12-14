@@ -981,6 +981,12 @@ static VALUE node_at_xpath(VALUE self, VALUE path) {
     return rb_ary_entry(wrapper->nodes_array, 0);
 }
 
+// node.css(selector) - CSS selectors not supported
+static VALUE node_css(VALUE self, VALUE selector) {
+    rb_raise(rb_eNotImpError, "CSS selectors are not supported. Use xpath() instead. Xerces-C only supports XPath queries.");
+    return Qnil;
+}
+
 // nodeset.length / nodeset.size
 static VALUE nodeset_length(VALUE self) {
     NodeSetWrapper* wrapper;
@@ -1243,6 +1249,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_alias(rb_cNode, "search", "xpath");
     rb_define_method(rb_cNode, "at_xpath", RUBY_METHOD_FUNC(node_at_xpath), 1);
     rb_define_alias(rb_cNode, "at", "at_xpath");
+    rb_define_method(rb_cNode, "css", RUBY_METHOD_FUNC(node_css), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
     rb_undef_alloc_func(rb_cElement);

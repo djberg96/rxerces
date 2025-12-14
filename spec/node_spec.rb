@@ -546,4 +546,14 @@ RSpec.describe RXerces::XML::Node do
       expect(result.text).to eq('New York')
     end
   end
+
+  describe "#css" do
+    it "raises NotImplementedError for CSS selectors" do
+      expect { root.css('div.class') }.to raise_error(NotImplementedError, /CSS selectors are not supported/)
+    end
+
+    it "suggests using xpath instead" do
+      expect { root.css('p') }.to raise_error(NotImplementedError, /Use xpath/)
+    end
+  end
 end
