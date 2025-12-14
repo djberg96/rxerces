@@ -309,6 +309,64 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#remove" do
+    it "removes a node from its parent" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      initial_count = root.children.select { |n| n.is_a?(RXerces::XML::Element) }.length
+
+      person.remove
+
+      remaining = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      expect(remaining.length).to eq(initial_count - 1)
+    end
+
+    it "removes a child element from parent" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      age = person.children.find { |n| n.name == 'age' }
+      initial_count = person.children.select { |n| n.is_a?(RXerces::XML::Element) }.length
+
+      age.remove
+
+      remaining = person.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      expect(remaining.length).to eq(initial_count - 1)
+      expect(person.children.find { |n| n.name == 'age' }).to be_nil
+    end
+
+    it "modifies the document" do
+      simple_xml = '<root><item>Remove me</item><keep>Keep me</keep></root>'
+      simple_doc = RXerces::XML::Document.parse(simple_xml)
+      item = simple_doc.xpath('//item').first
+
+      item.remove
+
+      xml_output = simple_doc.to_s
+      expect(xml_output).not_to include("Remove me")
+      expect(xml_output).to include("Keep me")
+    end
+
+    it "raises error when node has no parent" do
+      # The root element's parent is the document, so this should work
+      # We'll test with a document node instead
+      expect {
+        root.parent.remove
+      }.to raise_error(RuntimeError, /no parent/)
+    end
+  end
+
+  describe "#unlink" do
+    it "is an alias for remove" do
+      simple_xml = '<root><item>Test</item></root>'
+      simple_doc = RXerces::XML::Document.parse(simple_xml)
+      item = simple_doc.xpath('//item').first
+
+      expect(item).to respond_to(:unlink)
+      item.unlink
+
+      xml_output = simple_doc.to_s
+      expect(xml_output).not_to include("Test")
+    end
+  end
+
   describe "#xpath" do
     it "returns a NodeSet" do
       result = root.xpath('.//age')

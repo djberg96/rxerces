@@ -642,6 +642,32 @@ static VALUE node_add_child(VALUE self, VALUE child) {
     return child;
 }
 
+// node.remove / node.unlink - removes node from its parent
+static VALUE node_remove(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        rb_raise(rb_eRuntimeError, "Cannot remove null node");
+    }
+
+    DOMNode* parent = wrapper->node->getParentNode();
+    if (!parent) {
+        rb_raise(rb_eRuntimeError, "Node has no parent to remove from");
+    }
+
+    try {
+        parent->removeChild(wrapper->node);
+    } catch (const DOMException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        VALUE rb_error = rb_str_new_cstr(message);
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "Failed to remove node: %s", StringValueCStr(rb_error));
+    }
+
+    return self;
+}
+
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
     NodeWrapper* node_wrapper;
@@ -957,6 +983,8 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "next_sibling", RUBY_METHOD_FUNC(node_next_sibling), 0);
     rb_define_method(rb_cNode, "previous_sibling", RUBY_METHOD_FUNC(node_previous_sibling), 0);
     rb_define_method(rb_cNode, "add_child", RUBY_METHOD_FUNC(node_add_child), 1);
+    rb_define_method(rb_cNode, "remove", RUBY_METHOD_FUNC(node_remove), 0);
+    rb_define_method(rb_cNode, "unlink", RUBY_METHOD_FUNC(node_remove), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
