@@ -1162,7 +1162,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_singleton_method(rb_cDocument, "parse", RUBY_METHOD_FUNC(document_parse), 1);
     rb_define_method(rb_cDocument, "root", RUBY_METHOD_FUNC(document_root), 0);
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
-    rb_define_method(rb_cDocument, "to_xml", RUBY_METHOD_FUNC(document_to_s), 0);
+    rb_define_alias(rb_cDocument, "to_xml", "to_s");
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
     rb_define_method(rb_cDocument, "create_element", RUBY_METHOD_FUNC(document_create_element), 1);
 
@@ -1170,9 +1170,9 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_undef_alloc_func(rb_cNode);
     rb_define_method(rb_cNode, "name", RUBY_METHOD_FUNC(node_name), 0);
     rb_define_method(rb_cNode, "text", RUBY_METHOD_FUNC(node_text), 0);
-    rb_define_method(rb_cNode, "content", RUBY_METHOD_FUNC(node_text), 0);
+    rb_define_alias(rb_cNode, "content", "text");
     rb_define_method(rb_cNode, "text=", RUBY_METHOD_FUNC(node_text_set), 1);
-    rb_define_method(rb_cNode, "content=", RUBY_METHOD_FUNC(node_text_set), 1);
+    rb_define_alias(rb_cNode, "content=", "text=");
     rb_define_method(rb_cNode, "[]", RUBY_METHOD_FUNC(node_get_attribute), 1);
     rb_define_method(rb_cNode, "[]=", RUBY_METHOD_FUNC(node_set_attribute), 2);
     rb_define_method(rb_cNode, "children", RUBY_METHOD_FUNC(node_children), 0);
@@ -1182,9 +1182,9 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "previous_sibling", RUBY_METHOD_FUNC(node_previous_sibling), 0);
     rb_define_method(rb_cNode, "add_child", RUBY_METHOD_FUNC(node_add_child), 1);
     rb_define_method(rb_cNode, "remove", RUBY_METHOD_FUNC(node_remove), 0);
-    rb_define_method(rb_cNode, "unlink", RUBY_METHOD_FUNC(node_remove), 0);
+    rb_define_alias(rb_cNode, "unlink", "remove");
     rb_define_method(rb_cNode, "inner_html", RUBY_METHOD_FUNC(node_inner_html), 0);
-    rb_define_method(rb_cNode, "inner_xml", RUBY_METHOD_FUNC(node_inner_html), 0);
+    rb_define_alias(rb_cNode, "inner_xml", "inner_html");
     rb_define_method(rb_cNode, "path", RUBY_METHOD_FUNC(node_path), 0);
     rb_define_method(rb_cNode, "blank?", RUBY_METHOD_FUNC(node_blank_p), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
@@ -1199,7 +1199,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_cNodeSet = rb_define_class_under(rb_mXML, "NodeSet", rb_cObject);
     rb_undef_alloc_func(rb_cNodeSet);
     rb_define_method(rb_cNodeSet, "length", RUBY_METHOD_FUNC(nodeset_length), 0);
-    rb_define_method(rb_cNodeSet, "size", RUBY_METHOD_FUNC(nodeset_length), 0);
+    rb_define_alias(rb_cNodeSet, "size", "length");
     rb_define_method(rb_cNodeSet, "[]", RUBY_METHOD_FUNC(nodeset_at), 1);
     rb_define_method(rb_cNodeSet, "each", RUBY_METHOD_FUNC(nodeset_each), 0);
     rb_define_method(rb_cNodeSet, "to_a", RUBY_METHOD_FUNC(nodeset_to_a), 0);
