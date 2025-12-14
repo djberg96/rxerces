@@ -592,6 +592,56 @@ static VALUE node_previous_sibling(VALUE self) {
     return wrap_node(prev, doc_ref);
 }
 
+// node.add_child(node_or_string) - adds a child node
+static VALUE node_add_child(VALUE self, VALUE child) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        rb_raise(rb_eRuntimeError, "Cannot add child to null node");
+    }
+
+    DOMDocument* doc = wrapper->node->getOwnerDocument();
+    if (!doc) {
+        rb_raise(rb_eRuntimeError, "Node has no owner document");
+    }
+
+    DOMNode* child_node = NULL;
+
+    // Check if child is a string or a node
+    if (TYPE(child) == T_STRING) {
+        // Create a text node from the string
+        const char* text_str = StringValueCStr(child);
+        XMLCh* text_content = XMLString::transcode(text_str);
+        child_node = doc->createTextNode(text_content);
+        XMLString::release(&text_content);
+    } else {
+        // Assume it's a Node object
+        NodeWrapper* child_wrapper;
+        if (rb_obj_is_kind_of(child, rb_cNode)) {
+            TypedData_Get_Struct(child, NodeWrapper, &node_type, child_wrapper);
+            child_node = child_wrapper->node;
+        } else {
+            rb_raise(rb_eTypeError, "Argument must be a String or Node");
+        }
+    }
+
+    if (!child_node) {
+        rb_raise(rb_eRuntimeError, "Failed to create child node");
+    }
+
+    try {
+        wrapper->node->appendChild(child_node);
+    } catch (const DOMException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        VALUE rb_error = rb_str_new_cstr(message);
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "Failed to add child: %s", StringValueCStr(rb_error));
+    }
+
+    return child;
+}
+
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
     NodeWrapper* node_wrapper;
@@ -906,6 +956,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
     rb_define_method(rb_cNode, "next_sibling", RUBY_METHOD_FUNC(node_next_sibling), 0);
     rb_define_method(rb_cNode, "previous_sibling", RUBY_METHOD_FUNC(node_previous_sibling), 0);
+    rb_define_method(rb_cNode, "add_child", RUBY_METHOD_FUNC(node_add_child), 1);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
