@@ -29,6 +29,32 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#namespace" do
+    let(:ns_xml) do
+      <<-XML
+        <root xmlns="http://example.com/default">
+          <item>Default namespace</item>
+        </root>
+      XML
+    end
+    let(:ns_doc) { RXerces::XML::Document.parse(ns_xml) }
+
+    it "returns nil for nodes without a namespace" do
+      expect(root.namespace).to be_nil
+    end
+
+    it "returns the default namespace URI" do
+      ns_root = ns_doc.root
+      expect(ns_root.namespace).to eq('http://example.com/default')
+    end
+
+    it "returns the namespace for child elements inheriting default namespace" do
+      ns_root = ns_doc.root
+      item = ns_root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(item.namespace).to eq('http://example.com/default')
+    end
+  end
+
   describe "#text" do
     it "returns text content" do
       person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }

@@ -246,7 +246,7 @@ static VALUE document_parse(VALUE klass, VALUE str) {
 
     XercesDOMParser* parser = new XercesDOMParser();
     parser->setValidationScheme(XercesDOMParser::Val_Never);
-    parser->setDoNamespaces(false);
+    parser->setDoNamespaces(true);
     parser->setDoSchema(false);
 
     try {
@@ -451,6 +451,24 @@ static VALUE node_name(VALUE self) {
     CharStr utf8_name(name);
 
     return rb_str_new_cstr(utf8_name.localForm());
+}
+
+// node.namespace
+static VALUE node_namespace(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    const XMLCh* namespaceURI = wrapper->node->getNamespaceURI();
+    if (!namespaceURI || XMLString::stringLen(namespaceURI) == 0) {
+        return Qnil;
+    }
+
+    CharStr utf8_namespace(namespaceURI);
+    return rb_str_new_cstr(utf8_namespace.localForm());
 }
 
 // node.text / node.content
@@ -1202,6 +1220,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
     rb_undef_alloc_func(rb_cNode);
     rb_define_method(rb_cNode, "name", RUBY_METHOD_FUNC(node_name), 0);
+    rb_define_method(rb_cNode, "namespace", RUBY_METHOD_FUNC(node_namespace), 0);
     rb_define_method(rb_cNode, "text", RUBY_METHOD_FUNC(node_text), 0);
     rb_define_alias(rb_cNode, "content", "text");
     rb_define_method(rb_cNode, "text=", RUBY_METHOD_FUNC(node_text_set), 1);
