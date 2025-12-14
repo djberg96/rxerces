@@ -432,4 +432,41 @@ RSpec.describe RXerces::XML::Node do
       expect(age.path).to eq('/root[1]/person[1]/age[1]')
     end
   end
+
+  describe "#blank?" do
+    let(:blank_xml) { '<root><empty></empty><whitespace>   </whitespace><content>Hello</content></root>' }
+    let(:blank_doc) { RXerces::XML::Document.parse(blank_xml) }
+
+    it "returns false for elements with text content" do
+      content = blank_doc.xpath('//content').first
+      expect(content.blank?).to be false
+    end
+
+    it "returns true for empty elements" do
+      empty = blank_doc.xpath('//empty').first
+      expect(empty.blank?).to be true
+    end
+
+    it "returns true for elements with only whitespace" do
+      whitespace = blank_doc.xpath('//whitespace').first
+      expect(whitespace.blank?).to be true
+    end
+
+    it "returns false for elements with child elements" do
+      root = blank_doc.root
+      expect(root.blank?).to be false
+    end
+
+    it "returns false for text nodes with content" do
+      content = blank_doc.xpath('//content').first
+      text_node = content.children.first
+      expect(text_node.blank?).to be false
+    end
+
+    it "returns true for text nodes with only whitespace" do
+      whitespace = blank_doc.xpath('//whitespace').first
+      text_node = whitespace.children.first
+      expect(text_node.blank?).to be true
+    end
+  end
 end

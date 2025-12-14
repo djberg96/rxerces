@@ -796,6 +796,75 @@ static VALUE node_path(VALUE self) {
     return rb_str_new_cstr(path.c_str());
 }
 
+// node.blank? - returns true if node has no meaningful content
+static VALUE node_blank_p(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qtrue;
+    }
+
+    // Text nodes are blank if they contain only whitespace
+    if (wrapper->node->getNodeType() == DOMNode::TEXT_NODE) {
+        const XMLCh* text_content = wrapper->node->getNodeValue();
+        if (!text_content) {
+            return Qtrue;
+        }
+
+        // Check if text contains only whitespace
+        CharStr utf8_text(text_content);
+        const char* str = utf8_text.localForm();
+        while (*str) {
+            if (!isspace((unsigned char)*str)) {
+                return Qfalse;
+            }
+            str++;
+        }
+        return Qtrue;
+    }
+
+    // Element nodes are blank if they have no child elements and no non-blank text
+    if (wrapper->node->getNodeType() == DOMNode::ELEMENT_NODE) {
+        DOMNodeList* children = wrapper->node->getChildNodes();
+        XMLSize_t count = children->getLength();
+
+        if (count == 0) {
+            return Qtrue;
+        }
+
+        // Check if all children are blank text nodes
+        for (XMLSize_t i = 0; i < count; i++) {
+            DOMNode* child = children->item(i);
+
+            // If there's an element child, not blank
+            if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
+                return Qfalse;
+            }
+
+            // If there's a non-whitespace text node, not blank
+            if (child->getNodeType() == DOMNode::TEXT_NODE) {
+                const XMLCh* text_content = child->getNodeValue();
+                if (text_content) {
+                    CharStr utf8_text(text_content);
+                    const char* str = utf8_text.localForm();
+                    while (*str) {
+                        if (!isspace((unsigned char)*str)) {
+                            return Qfalse;
+                        }
+                        str++;
+                    }
+                }
+            }
+        }
+
+        return Qtrue;
+    }
+
+    // Other node types are considered blank
+    return Qtrue;
+}
+
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
     NodeWrapper* node_wrapper;
@@ -1117,6 +1186,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "inner_html", RUBY_METHOD_FUNC(node_inner_html), 0);
     rb_define_method(rb_cNode, "inner_xml", RUBY_METHOD_FUNC(node_inner_html), 0);
     rb_define_method(rb_cNode, "path", RUBY_METHOD_FUNC(node_path), 0);
+    rb_define_method(rb_cNode, "blank?", RUBY_METHOD_FUNC(node_blank_p), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
