@@ -255,6 +255,60 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#add_child" do
+    it "adds a text node from a string" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      initial_count = person.children.length
+
+      person.add_child("New text content")
+
+      expect(person.children.length).to eq(initial_count + 1)
+      last_child = person.children.last
+      expect(last_child).to be_a(RXerces::XML::Text)
+      expect(last_child.text).to eq("New text content")
+    end
+
+    it "adds a new element to another element" do
+      # Create a simple document to test with
+      simple_xml = '<root><parent></parent></root>'
+      simple_doc = RXerces::XML::Document.parse(simple_xml)
+      parent = simple_doc.root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+
+      # Add text child
+      parent.add_child("Hello World")
+
+      expect(parent.children.length).to be > 0
+      text_child = parent.children.find { |n| n.is_a?(RXerces::XML::Text) }
+      expect(text_child.text).to eq("Hello World")
+    end
+
+    it "allows building a document structure" do
+      simple_xml = '<root></root>'
+      simple_doc = RXerces::XML::Document.parse(simple_xml)
+      root = simple_doc.root
+
+      # Add multiple children
+      root.add_child("First text")
+      root.add_child("Second text")
+
+      text_nodes = root.children.select { |n| n.is_a?(RXerces::XML::Text) }
+      expect(text_nodes.length).to eq(2)
+      expect(text_nodes[0].text).to eq("First text")
+      expect(text_nodes[1].text).to eq("Second text")
+    end
+
+    it "modifies the document" do
+      simple_xml = '<item></item>'
+      simple_doc = RXerces::XML::Document.parse(simple_xml)
+      item = simple_doc.root
+
+      item.add_child("Content")
+
+      xml_output = simple_doc.to_s
+      expect(xml_output).to include("Content")
+    end
+  end
+
   describe "#xpath" do
     it "returns a NodeSet" do
       result = root.xpath('.//age')
