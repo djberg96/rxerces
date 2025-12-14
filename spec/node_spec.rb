@@ -132,6 +132,38 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#attributes" do
+    it "returns a hash of attributes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      attrs = person.attributes
+      expect(attrs).to be_a(Hash)
+      expect(attrs['id']).to eq('1')
+      expect(attrs['name']).to eq('Alice')
+    end
+
+    it "returns all attributes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      attrs = person.attributes
+      expect(attrs.keys).to match_array(['id', 'name'])
+    end
+
+    it "returns empty hash for elements without attributes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      age = person.children.find { |n| n.name == 'age' }
+      attrs = age.attributes
+      expect(attrs).to be_a(Hash)
+      expect(attrs).to be_empty
+    end
+
+    it "returns empty hash for text nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      text_node = person.children.find { |n| n.is_a?(RXerces::XML::Text) }
+      attrs = text_node.attributes
+      expect(attrs).to be_a(Hash)
+      expect(attrs).to be_empty
+    end
+  end
+
   describe "#xpath" do
     it "returns a NodeSet" do
       result = root.xpath('.//age')
