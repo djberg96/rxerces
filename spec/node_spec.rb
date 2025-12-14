@@ -469,4 +469,24 @@ RSpec.describe RXerces::XML::Node do
       expect(text_node.blank?).to be true
     end
   end
+
+  describe "#search" do
+    it "is an alias for xpath" do
+      result1 = root.search('.//age')
+      result2 = root.xpath('.//age')
+      expect(result1.length).to eq(result2.length)
+      expect(result1.first.text).to eq(result2.first.text)
+    end
+
+    it "returns a NodeSet" do
+      result = root.search('.//person')
+      expect(result).to be_a(RXerces::XML::NodeSet)
+    end
+
+    it "finds nested elements" do
+      result = root.search('.//age')
+      expect(result.length).to eq(2)
+      expect(result.first.text).to eq('30')
+    end
+  end
 end
