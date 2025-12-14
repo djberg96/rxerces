@@ -1188,7 +1188,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "path", RUBY_METHOD_FUNC(node_path), 0);
     rb_define_method(rb_cNode, "blank?", RUBY_METHOD_FUNC(node_blank_p), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
-    rb_define_method(rb_cNode, "search", RUBY_METHOD_FUNC(node_xpath), 1);
+    rb_define_alias(rb_cNode, "search", "xpath");
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
     rb_undef_alloc_func(rb_cElement);
