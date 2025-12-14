@@ -410,4 +410,26 @@ RSpec.describe RXerces::XML::Node do
       expect(inner).to include('<city>')
     end
   end
+
+  describe "#path" do
+    it "returns the XPath to the root element" do
+      expect(root.path).to eq('/root[1]')
+    end
+
+    it "returns the XPath to a nested element" do
+      person = root.xpath('//person').first
+      expect(person.path).to eq('/root[1]/person[1]')
+    end
+
+    it "returns the XPath to the second person element" do
+      people = root.xpath('//person')
+      second_person = people[1]
+      expect(second_person.path).to eq('/root[1]/person[2]')
+    end
+
+    it "returns the XPath to deeply nested elements" do
+      age = root.xpath('//age').first
+      expect(age.path).to eq('/root[1]/person[1]/age[1]')
+    end
+  end
 end

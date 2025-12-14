@@ -743,6 +743,59 @@ static VALUE node_inner_html(VALUE self) {
     return rb_str_new_cstr("");
 }
 
+// node.path - returns XPath to the node
+static VALUE node_path(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return rb_str_new_cstr("");
+    }
+
+    std::string path = "";
+    DOMNode* current = wrapper->node;
+
+    // Build path from current node to root
+    while (current && current->getNodeType() != DOMNode::DOCUMENT_NODE) {
+        std::string segment = "";
+
+        if (current->getNodeType() == DOMNode::ELEMENT_NODE) {
+            CharStr name(current->getNodeName());
+            segment = std::string(name.localForm());
+
+            // Count position among siblings with same name
+            int position = 1;
+            DOMNode* sibling = current->getPreviousSibling();
+            while (sibling) {
+                if (sibling->getNodeType() == DOMNode::ELEMENT_NODE &&
+                    XMLString::equals(sibling->getNodeName(), current->getNodeName())) {
+                    position++;
+                }
+                sibling = sibling->getPreviousSibling();
+            }
+
+            // Add position predicate
+            segment += "[" + std::to_string(position) + "]";
+            path = "/" + segment + path;
+        } else if (current->getNodeType() == DOMNode::TEXT_NODE) {
+            // Count position among text node siblings
+            int position = 1;
+            DOMNode* sibling = current->getPreviousSibling();
+            while (sibling) {
+                if (sibling->getNodeType() == DOMNode::TEXT_NODE) {
+                    position++;
+                }
+                sibling = sibling->getPreviousSibling();
+            }
+            path = "/text()[" + std::to_string(position) + "]" + path;
+        }
+
+        current = current->getParentNode();
+    }
+
+    return rb_str_new_cstr(path.c_str());
+}
+
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
     NodeWrapper* node_wrapper;
@@ -1063,6 +1116,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "unlink", RUBY_METHOD_FUNC(node_remove), 0);
     rb_define_method(rb_cNode, "inner_html", RUBY_METHOD_FUNC(node_inner_html), 0);
     rb_define_method(rb_cNode, "inner_xml", RUBY_METHOD_FUNC(node_inner_html), 0);
+    rb_define_method(rb_cNode, "path", RUBY_METHOD_FUNC(node_path), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
