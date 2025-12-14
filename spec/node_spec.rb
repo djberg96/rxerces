@@ -164,6 +164,97 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#next_sibling" do
+    it "returns the next sibling node" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      first_person = people[0]
+      next_node = first_person.next_sibling
+
+      # May be a text node (whitespace) between elements
+      # Skip to next element if needed
+      while next_node && next_node.is_a?(RXerces::XML::Text)
+        next_node = next_node.next_sibling
+      end
+
+      expect(next_node).to be_a(RXerces::XML::Element)
+      expect(next_node.name).to eq('person')
+      expect(next_node['id']).to eq('2')
+    end
+
+    it "returns nil for last sibling" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      last_person = people.last
+
+      # Navigate past any trailing whitespace
+      next_node = last_person.next_sibling
+      while next_node && next_node.is_a?(RXerces::XML::Text)
+        next_node = next_node.next_sibling
+      end
+
+      expect(next_node).to be_nil
+    end
+
+    it "can navigate through all siblings" do
+      first_element = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      siblings = []
+      current = first_element
+
+      while current
+        siblings << current if current.is_a?(RXerces::XML::Element)
+        current = current.next_sibling
+      end
+
+      expect(siblings.length).to eq(2)
+      expect(siblings[0]['id']).to eq('1')
+      expect(siblings[1]['id']).to eq('2')
+    end
+  end
+
+  describe "#previous_sibling" do
+    it "returns the previous sibling node" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      second_person = people[1]
+      prev_node = second_person.previous_sibling
+
+      # May be a text node (whitespace) between elements
+      # Skip to previous element if needed
+      while prev_node && prev_node.is_a?(RXerces::XML::Text)
+        prev_node = prev_node.previous_sibling
+      end
+
+      expect(prev_node).to be_a(RXerces::XML::Element)
+      expect(prev_node.name).to eq('person')
+      expect(prev_node['id']).to eq('1')
+    end
+
+    it "returns nil for first sibling" do
+      first_element = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+
+      # Navigate past any leading whitespace
+      prev_node = first_element.previous_sibling
+      while prev_node && prev_node.is_a?(RXerces::XML::Text)
+        prev_node = prev_node.previous_sibling
+      end
+
+      expect(prev_node).to be_nil
+    end
+
+    it "can navigate backward through all siblings" do
+      last_element = root.children.select { |n| n.is_a?(RXerces::XML::Element) }.last
+      siblings = []
+      current = last_element
+
+      while current
+        siblings.unshift(current) if current.is_a?(RXerces::XML::Element)
+        current = current.previous_sibling
+      end
+
+      expect(siblings.length).to eq(2)
+      expect(siblings[0]['id']).to eq('1')
+      expect(siblings[1]['id']).to eq('2')
+    end
+  end
+
   describe "#xpath" do
     it "returns a NodeSet" do
       result = root.xpath('.//age')
