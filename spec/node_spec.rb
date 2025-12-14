@@ -489,4 +489,35 @@ RSpec.describe RXerces::XML::Node do
       expect(result.first.text).to eq('30')
     end
   end
+
+  describe "#at_xpath" do
+    it "returns the first matching node" do
+      result = root.at_xpath('.//age')
+      expect(result).to be_a(RXerces::XML::Element)
+      expect(result.text).to eq('30')
+    end
+
+    it "returns nil when no match found" do
+      result = root.at_xpath('.//nonexistent')
+      expect(result).to be_nil
+    end
+
+    it "returns only the first match when multiple exist" do
+      result = root.at_xpath('.//person')
+      expect(result['id']).to eq('1')
+    end
+  end
+
+  describe "#at" do
+    it "is an alias for at_xpath" do
+      result1 = root.at('.//age')
+      result2 = root.at_xpath('.//age')
+      expect(result1.text).to eq(result2.text)
+    end
+
+    it "returns the first matching element" do
+      result = root.at('.//city')
+      expect(result.text).to eq('New York')
+    end
+  end
 end
