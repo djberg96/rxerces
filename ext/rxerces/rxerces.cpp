@@ -501,6 +501,24 @@ static VALUE node_children(VALUE self) {
     return children;
 }
 
+// node.parent
+static VALUE node_parent(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    DOMNode* parent = wrapper->node->getParentNode();
+    if (!parent) {
+        return Qnil;
+    }
+
+    VALUE doc_ref = rb_iv_get(self, "@document");
+    return wrap_node(parent, doc_ref);
+}
+
 // node.xpath(path)
 static VALUE node_xpath(VALUE self, VALUE path) {
     NodeWrapper* node_wrapper;
@@ -811,6 +829,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "[]", RUBY_METHOD_FUNC(node_get_attribute), 1);
     rb_define_method(rb_cNode, "[]=", RUBY_METHOD_FUNC(node_set_attribute), 2);
     rb_define_method(rb_cNode, "children", RUBY_METHOD_FUNC(node_children), 0);
+    rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
     rb_define_method(rb_cNode, "xpath", RUBY_METHOD_FUNC(node_xpath), 1);
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);

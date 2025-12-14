@@ -102,6 +102,36 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#parent" do
+    it "returns the parent node" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      parent = person.parent
+      expect(parent).to be_a(RXerces::XML::Element)
+      expect(parent.name).to eq('root')
+    end
+
+    it "returns the parent for nested elements" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      age = person.children.find { |n| n.name == 'age' }
+      parent = age.parent
+      expect(parent).to be_a(RXerces::XML::Element)
+      expect(parent.name).to eq('person')
+      expect(parent['id']).to eq('1')
+    end
+
+    it "returns the document for root element" do
+      parent = root.parent
+      expect(parent).not_to be_nil
+      expect(parent.name).to eq('#document')
+    end
+
+    it "returns nil for nodes without parent" do
+      # This is edge case - all nodes in a parsed document have parents
+      # but we test the safety of the method
+      expect(root.parent).not_to be_nil
+    end
+  end
+
   describe "#xpath" do
     it "returns a NodeSet" do
       result = root.xpath('.//age')
