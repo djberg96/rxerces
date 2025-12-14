@@ -64,6 +64,25 @@ RSpec.describe RXerces::XML::Document do
     end
   end
 
+  describe "#encoding" do
+    it "returns UTF-8 for documents without explicit encoding" do
+      doc = RXerces::XML::Document.parse(simple_xml)
+      expect(doc.encoding).to eq('UTF-8')
+    end
+
+    it "returns the encoding specified in the XML declaration" do
+      xml_with_encoding = '<?xml version="1.0" encoding="ISO-8859-1"?><root><item>Test</item></root>'
+      doc = RXerces::XML::Document.parse(xml_with_encoding)
+      expect(doc.encoding).to eq('ISO-8859-1')
+    end
+
+    it "returns the encoding for UTF-16 documents" do
+      xml_with_encoding = '<?xml version="1.0" encoding="UTF-16"?><root><item>Test</item></root>'
+      doc = RXerces::XML::Document.parse(xml_with_encoding)
+      expect(doc.encoding).to eq('UTF-16')
+    end
+  end
+
   describe "#create_element" do
     let(:doc) { RXerces::XML::Document.parse(simple_xml) }
 

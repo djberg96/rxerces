@@ -319,6 +319,25 @@ static VALUE document_to_s(VALUE self) {
     return Qnil;
 }
 
+// document.encoding
+static VALUE document_encoding(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    if (!wrapper->doc) {
+        return Qnil;
+    }
+
+    const XMLCh* encoding = wrapper->doc->getXmlEncoding();
+    if (!encoding || XMLString::stringLen(encoding) == 0) {
+        // Default to UTF-8 if no encoding is specified
+        return rb_str_new_cstr("UTF-8");
+    }
+
+    CharStr utf8_encoding(encoding);
+    return rb_str_new_cstr(utf8_encoding.localForm());
+}
+
 // document.create_element(name)
 static VALUE document_create_element(VALUE self, VALUE name) {
     DocumentWrapper* doc_wrapper;
@@ -1177,6 +1196,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
     rb_define_alias(rb_cDocument, "to_xml", "to_s");
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
+    rb_define_method(rb_cDocument, "encoding", RUBY_METHOD_FUNC(document_encoding), 0);
     rb_define_method(rb_cDocument, "create_element", RUBY_METHOD_FUNC(document_create_element), 1);
 
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
