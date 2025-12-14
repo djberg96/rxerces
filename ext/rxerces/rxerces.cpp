@@ -319,6 +319,41 @@ static VALUE document_to_s(VALUE self) {
     return Qnil;
 }
 
+// document.create_element(name)
+static VALUE document_create_element(VALUE self, VALUE name) {
+    DocumentWrapper* doc_wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, doc_wrapper);
+
+    if (!doc_wrapper->doc) {
+        rb_raise(rb_eRuntimeError, "Cannot create element on null document");
+    }
+
+    Check_Type(name, T_STRING);
+    const char* element_name = StringValueCStr(name);
+
+    try {
+        XMLCh* element_name_xml = XMLString::transcode(element_name);
+        DOMElement* element = doc_wrapper->doc->createElement(element_name_xml);
+        XMLString::release(&element_name_xml);
+
+        if (!element) {
+            rb_raise(rb_eRuntimeError, "Failed to create element");
+        }
+
+        return wrap_node(element, self);
+
+    } catch (const DOMException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        VALUE rb_error = rb_str_new_cstr(message);
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "Failed to create element: %s", StringValueCStr(rb_error));
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Unknown error creating element");
+    }
+
+    return Qnil;
+}
+
 // document.xpath(path)
 static VALUE document_xpath(VALUE self, VALUE path) {
     DocumentWrapper* doc_wrapper;
@@ -967,6 +1002,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
     rb_define_method(rb_cDocument, "to_xml", RUBY_METHOD_FUNC(document_to_s), 0);
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
+    rb_define_method(rb_cDocument, "create_element", RUBY_METHOD_FUNC(document_create_element), 1);
 
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
     rb_undef_alloc_func(rb_cNode);

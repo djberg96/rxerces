@@ -63,4 +63,39 @@ RSpec.describe RXerces::XML::Document do
       expect(result).to be_a(RXerces::XML::NodeSet)
     end
   end
+
+  describe "#create_element" do
+    let(:doc) { RXerces::XML::Document.parse(simple_xml) }
+
+    it "creates a new element with the specified name" do
+      element = doc.create_element('book')
+      expect(element).to be_a(RXerces::XML::Element)
+      expect(element.name).to eq('book')
+    end
+
+    it "creates an element that can have attributes set" do
+      element = doc.create_element('book')
+      attributes = element.attributes
+      expect(attributes).to be_a(Hash)
+      expect(attributes).to be_empty
+    end
+
+    it "creates an element that can have children added" do
+      element = doc.create_element('book')
+      element.add_child('Test Content')
+      expect(element.text).to eq('Test Content')
+    end
+
+    it "creates an element that can be added to the document" do
+      root = doc.root
+      new_element = doc.create_element('new_child')
+      new_element.add_child('New content')
+      root.add_child(new_element)
+
+      # Verify the new element is in the document
+      result = doc.xpath('//new_child')
+      expect(result.length).to eq(1)
+      expect(result.first.text).to eq('New content')
+    end
+  end
 end
