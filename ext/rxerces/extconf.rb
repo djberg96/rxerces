@@ -29,4 +29,25 @@ unless find_header('xercesc/util/PlatformUtils.hpp')
   puts "Proceeding with compilation..."
 end
 
+# Check for Xalan-C (optional for enhanced XPath support)
+xalan_prefix = '/usr/local'
+if File.directory?("#{xalan_prefix}/include/xalanc")
+  $INCFLAGS << " -I#{xalan_prefix}/include"
+  $LDFLAGS << " -L#{xalan_prefix}/lib"
+
+  # Check for both Xalan libraries - xalanMsg must be checked first for linking order
+  if have_library('xalanMsg') && have_library('xalan-c')
+    $CXXFLAGS << " -DHAVE_XALAN"
+    # Add rpath so the dynamic libraries can be found at runtime
+    $LDFLAGS << " -Wl,-rpath,#{xalan_prefix}/lib"
+    puts "Xalan-C found: Full XPath 1.0 support enabled"
+  else
+    puts "Warning: Xalan-C headers found but libraries not available"
+    puts "Falling back to Xerces XPath subset"
+  end
+else
+  puts "Xalan-C not found: Using Xerces XPath subset"
+  puts "For full XPath 1.0 support, install Xalan-C from source"
+end
+
 create_makefile('rxerces/rxerces')
