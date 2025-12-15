@@ -346,6 +346,45 @@ static VALUE document_to_s(VALUE self) {
     return Qnil;
 }
 
+// document.inspect - human-readable representation
+static VALUE document_inspect(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    std::string result = "#<RXerces::XML::Document:0x";
+
+    // Add object ID
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%016lx", (unsigned long)self);
+    result += buf;
+
+    if (!wrapper->doc) {
+        result += " (empty)>";
+        return rb_str_new_cstr(result.c_str());
+    }
+
+    // Add encoding
+    const XMLCh* encoding = wrapper->doc->getXmlEncoding();
+    if (encoding && XMLString::stringLen(encoding) > 0) {
+        CharStr utf8_encoding(encoding);
+        result += " encoding=\"";
+        result += utf8_encoding.localForm();
+        result += "\"";
+    }
+
+    // Add root element name
+    DOMElement* root = wrapper->doc->getDocumentElement();
+    if (root) {
+        CharStr rootName(root->getNodeName());
+        result += " root=<";
+        result += rootName.localForm();
+        result += ">";
+    }
+
+    result += ">";
+    return rb_str_new_cstr(result.c_str());
+}
+
 // document.encoding
 static VALUE document_encoding(VALUE self) {
     DocumentWrapper* wrapper;
@@ -588,6 +627,114 @@ static VALUE document_css(VALUE self, VALUE selector) {
 
     // Call the xpath method with converted selector
     return document_xpath(self, rb_str_new2(xpath_str.c_str()));
+}
+
+// node.inspect - human-readable representation
+static VALUE node_inspect(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return rb_str_new_cstr("#<RXerces::XML::Node (nil)>");
+    }
+
+    DOMNode::NodeType nodeType = wrapper->node->getNodeType();
+    std::string result;
+
+    // Add object ID
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%016lx", (unsigned long)self);
+
+    if (nodeType == DOMNode::ELEMENT_NODE) {
+        result = "#<RXerces::XML::Element:0x";
+        result += buf;
+        result += " <";
+
+        CharStr name(wrapper->node->getNodeName());
+        result += name.localForm();
+
+        // Add attributes
+        DOMElement* element = dynamic_cast<DOMElement*>(wrapper->node);
+        if (element) {
+            DOMNamedNodeMap* attributes = element->getAttributes();
+            if (attributes && attributes->getLength() > 0) {
+                XMLSize_t attrLen = attributes->getLength();
+                if (attrLen > 3) attrLen = 3;
+
+                for (XMLSize_t i = 0; i < attrLen; i++) {
+                    DOMNode* attr = attributes->item(i);
+                    CharStr attrName(attr->getNodeName());
+                    CharStr attrValue(attr->getNodeValue());
+                    result += " ";
+                    result += attrName.localForm();
+                    result += "=\"";
+                    result += attrValue.localForm();
+                    result += "\"";
+                }
+                if (attributes->getLength() > 3) {
+                    result += " ...";
+                }
+            }
+        }
+
+        result += ">";
+
+        // Add truncated text content
+        const XMLCh* textContent = wrapper->node->getTextContent();
+        if (textContent && XMLString::stringLen(textContent) > 0) {
+            CharStr text(textContent);
+            std::string textStr = text.localForm();
+
+            size_t start = textStr.find_first_not_of(" \t\n\r");
+            if (start != std::string::npos) {
+                size_t end = textStr.find_last_not_of(" \t\n\r");
+                textStr = textStr.substr(start, end - start + 1);
+
+                if (textStr.length() > 40) {
+                    textStr = textStr.substr(0, 37) + "...";
+                }
+
+                result += "\"";
+                result += textStr;
+                result += "\"";
+            }
+        }
+
+        result += ">";
+    } else if (nodeType == DOMNode::TEXT_NODE) {
+        result = "#<RXerces::XML::Text:0x";
+        result += buf;
+        result += " \"";
+
+        const XMLCh* textContent = wrapper->node->getNodeValue();
+        if (textContent) {
+            CharStr text(textContent);
+            std::string textStr = text.localForm();
+
+            size_t start = textStr.find_first_not_of(" \t\n\r");
+            if (start != std::string::npos) {
+                size_t end = textStr.find_last_not_of(" \t\n\r");
+                textStr = textStr.substr(start, end - start + 1);
+
+                if (textStr.length() > 40) {
+                    textStr = textStr.substr(0, 37) + "...";
+                }
+
+                result += textStr;
+            }
+        }
+
+        result += "\">";
+    } else {
+        result = "#<RXerces::XML::Node:0x";
+        result += buf;
+        result += " ";
+        CharStr name(wrapper->node->getNodeName());
+        result += name.localForm();
+        result += ">";
+    }
+
+    return rb_str_new_cstr(result.c_str());
 }
 
 // node.name
@@ -1663,6 +1810,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "root", RUBY_METHOD_FUNC(document_root), 0);
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
     rb_define_alias(rb_cDocument, "to_xml", "to_s");
+    rb_define_method(rb_cDocument, "inspect", RUBY_METHOD_FUNC(document_inspect), 0);
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
     rb_define_method(rb_cDocument, "css", RUBY_METHOD_FUNC(document_css), 1);
     rb_define_method(rb_cDocument, "encoding", RUBY_METHOD_FUNC(document_encoding), 0);
@@ -1670,6 +1818,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
 
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
     rb_undef_alloc_func(rb_cNode);
+    rb_define_method(rb_cNode, "inspect", RUBY_METHOD_FUNC(node_inspect), 0);
     rb_define_method(rb_cNode, "name", RUBY_METHOD_FUNC(node_name), 0);
     rb_define_method(rb_cNode, "namespace", RUBY_METHOD_FUNC(node_namespace), 0);
     rb_define_method(rb_cNode, "text", RUBY_METHOD_FUNC(node_text), 0);
