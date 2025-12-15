@@ -51,6 +51,9 @@ static bool xerces_initialized = false;
 static bool xalan_initialized = false;
 #endif
 
+// Forward declarations
+static std::string css_to_xpath(const char* css);
+
 // Helper class to manage XMLCh strings
 class XStr {
 public:
@@ -343,6 +346,45 @@ static VALUE document_to_s(VALUE self) {
     return Qnil;
 }
 
+// document.inspect - human-readable representation
+static VALUE document_inspect(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    std::string result = "#<RXerces::XML::Document:0x";
+
+    // Add object ID
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%016lx", (unsigned long)self);
+    result += buf;
+
+    if (!wrapper->doc) {
+        result += " (empty)>";
+        return rb_str_new_cstr(result.c_str());
+    }
+
+    // Add encoding
+    const XMLCh* encoding = wrapper->doc->getXmlEncoding();
+    if (encoding && XMLString::stringLen(encoding) > 0) {
+        CharStr utf8_encoding(encoding);
+        result += " encoding=\"";
+        result += utf8_encoding.localForm();
+        result += "\"";
+    }
+
+    // Add root element name
+    DOMElement* root = wrapper->doc->getDocumentElement();
+    if (root) {
+        CharStr rootName(root->getNodeName());
+        result += " root=<";
+        result += rootName.localForm();
+        result += ">";
+    }
+
+    result += ">";
+    return rb_str_new_cstr(result.c_str());
+}
+
 // document.encoding
 static VALUE document_encoding(VALUE self) {
     DocumentWrapper* wrapper;
@@ -360,6 +402,29 @@ static VALUE document_encoding(VALUE self) {
 
     CharStr utf8_encoding(encoding);
     return rb_str_new_cstr(utf8_encoding.localForm());
+}
+
+// document.text / document.content - returns text content of entire document
+static VALUE document_text(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    if (!wrapper->doc) {
+        return rb_str_new_cstr("");
+    }
+
+    DOMElement* root = wrapper->doc->getDocumentElement();
+    if (!root) {
+        return rb_str_new_cstr("");
+    }
+
+    const XMLCh* content = root->getTextContent();
+    if (!content) {
+        return rb_str_new_cstr("");
+    }
+
+    CharStr utf8_content(content);
+    return rb_str_new_cstr(utf8_content.localForm());
 }
 
 // document.create_element(name)
@@ -573,6 +638,126 @@ static VALUE document_xpath(VALUE self, VALUE path) {
     wrapper->nodes_array = rb_ary_new();
     return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
 #endif
+}
+
+// document.css(selector) - Convert CSS to XPath and execute
+static VALUE document_css(VALUE self, VALUE selector) {
+    Check_Type(selector, T_STRING);
+    const char* css_str = StringValueCStr(selector);
+
+    // Convert CSS to XPath
+    std::string xpath_str = css_to_xpath(css_str);
+
+    // Call the xpath method with converted selector
+    return document_xpath(self, rb_str_new2(xpath_str.c_str()));
+}
+
+// node.inspect - human-readable representation
+static VALUE node_inspect(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return rb_str_new_cstr("#<RXerces::XML::Node (nil)>");
+    }
+
+    DOMNode::NodeType nodeType = wrapper->node->getNodeType();
+    std::string result;
+
+    // Add object ID
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%016lx", (unsigned long)self);
+
+    if (nodeType == DOMNode::ELEMENT_NODE) {
+        result = "#<RXerces::XML::Element:0x";
+        result += buf;
+        result += " <";
+
+        CharStr name(wrapper->node->getNodeName());
+        result += name.localForm();
+
+        // Add attributes
+        DOMElement* element = dynamic_cast<DOMElement*>(wrapper->node);
+        if (element) {
+            DOMNamedNodeMap* attributes = element->getAttributes();
+            if (attributes && attributes->getLength() > 0) {
+                XMLSize_t attrLen = attributes->getLength();
+                if (attrLen > 3) attrLen = 3;
+
+                for (XMLSize_t i = 0; i < attrLen; i++) {
+                    DOMNode* attr = attributes->item(i);
+                    CharStr attrName(attr->getNodeName());
+                    CharStr attrValue(attr->getNodeValue());
+                    result += " ";
+                    result += attrName.localForm();
+                    result += "=\"";
+                    result += attrValue.localForm();
+                    result += "\"";
+                }
+                if (attributes->getLength() > 3) {
+                    result += " ...";
+                }
+            }
+        }
+
+        result += ">";
+
+        // Add truncated text content
+        const XMLCh* textContent = wrapper->node->getTextContent();
+        if (textContent && XMLString::stringLen(textContent) > 0) {
+            CharStr text(textContent);
+            std::string textStr = text.localForm();
+
+            size_t start = textStr.find_first_not_of(" \t\n\r");
+            if (start != std::string::npos) {
+                size_t end = textStr.find_last_not_of(" \t\n\r");
+                textStr = textStr.substr(start, end - start + 1);
+
+                if (textStr.length() > 40) {
+                    textStr = textStr.substr(0, 37) + "...";
+                }
+
+                result += "\"";
+                result += textStr;
+                result += "\"";
+            }
+        }
+
+        result += ">";
+    } else if (nodeType == DOMNode::TEXT_NODE) {
+        result = "#<RXerces::XML::Text:0x";
+        result += buf;
+        result += " \"";
+
+        const XMLCh* textContent = wrapper->node->getNodeValue();
+        if (textContent) {
+            CharStr text(textContent);
+            std::string textStr = text.localForm();
+
+            size_t start = textStr.find_first_not_of(" \t\n\r");
+            if (start != std::string::npos) {
+                size_t end = textStr.find_last_not_of(" \t\n\r");
+                textStr = textStr.substr(start, end - start + 1);
+
+                if (textStr.length() > 40) {
+                    textStr = textStr.substr(0, 37) + "...";
+                }
+
+                result += textStr;
+            }
+        }
+
+        result += "\">";
+    } else {
+        result = "#<RXerces::XML::Node:0x";
+        result += buf;
+        result += " ";
+        CharStr name(wrapper->node->getNodeName());
+        result += name.localForm();
+        result += ">";
+    }
+
+    return rb_str_new_cstr(result.c_str());
 }
 
 // node.name
@@ -1124,10 +1309,172 @@ static VALUE node_at_xpath(VALUE self, VALUE path) {
     return rb_ary_entry(wrapper->nodes_array, 0);
 }
 
-// node.css(selector) - CSS selectors not supported
+// Helper function to convert basic CSS selectors to XPath
+// Supports common patterns like: tag, .class, #id, tag.class, tag#id, [attr], [attr=value]
+static std::string css_to_xpath(const char* css) {
+    std::string selector(css);
+
+    // Trim whitespace
+    size_t start = selector.find_first_not_of(" \t\n\r");
+    size_t end = selector.find_last_not_of(" \t\n\r");
+    if (start == std::string::npos) return "//*";
+    selector = selector.substr(start, end - start + 1);
+
+    std::string result = "//";
+    std::string current_element = "*";
+    bool has_element = false;
+    bool in_brackets = false;
+
+    for (size_t i = 0; i < selector.length(); i++) {
+        char c = selector[i];
+
+        if (c == '[') in_brackets = true;
+        if (c == ']') in_brackets = false;
+
+        // Handle spaces (descendant combinator) outside of attribute selectors
+        if (c == ' ' && !in_brackets) {
+            // Flush current element
+            if (!has_element && current_element != "*") {
+                result += current_element;
+            }
+            // Skip multiple spaces
+            while (i + 1 < selector.length() && selector[i + 1] == ' ') i++;
+            result += "//";
+            current_element = "*";
+            has_element = false;
+            continue;
+        }
+
+        // Handle child combinator
+        if (c == '>' && !in_brackets) {
+            // Flush current element
+            if (!has_element && current_element != "*") {
+                result += current_element;
+            }
+            // Remove any trailing slashes and spaces
+            while (!result.empty() && (result.back() == ' ' || result.back() == '/')) {
+                if (result.back() == '/') {
+                    result.pop_back();
+                    break;
+                }
+                result.pop_back();
+            }
+            result += "/";
+            // Skip spaces after >
+            while (i + 1 < selector.length() && selector[i + 1] == ' ') i++;
+            current_element = "*";
+            has_element = false;
+            continue;
+        }
+
+        // Handle ID selector
+        if (c == '#' && !in_brackets) {
+            if (!has_element) {
+                result += "*";
+                has_element = true;
+            } else if (current_element != "*") {
+                result += current_element;
+                current_element = "*";
+                has_element = true;
+            }
+            result += "[@id='";
+            i++;
+            while (i < selector.length() && selector[i] != ' ' && selector[i] != '.' &&
+                   selector[i] != '[' && selector[i] != '>' && selector[i] != '+' && selector[i] != '~') {
+                result += selector[i++];
+            }
+            result += "']";
+            i--;
+            continue;
+        }
+
+        // Handle class selector
+        if (c == '.' && !in_brackets) {
+            if (!has_element) {
+                result += "*";
+                has_element = true;
+            } else if (current_element != "*") {
+                result += current_element;
+                current_element = "*";
+                has_element = true;
+            }
+            result += "[contains(concat(' ', @class, ' '), ' ";
+            i++;
+            while (i < selector.length() && selector[i] != ' ' && selector[i] != '.' &&
+                   selector[i] != '[' && selector[i] != '>' && selector[i] != '+' && selector[i] != '~' && selector[i] != '#') {
+                result += selector[i++];
+            }
+            result += " ')]";
+            i--;
+            continue;
+        }
+
+        // Handle attribute selectors
+        if (c == '[') {
+            if (!has_element && current_element != "*") {
+                result += current_element;
+                has_element = true;
+            }
+            result += "[@";
+            i++;
+            // Get attribute name
+            while (i < selector.length() && selector[i] != ']' && selector[i] != '=' &&
+                   selector[i] != '!' && selector[i] != '~' && selector[i] != '^' && selector[i] != '$' && selector[i] != '*') {
+                result += selector[i++];
+            }
+
+            if (i < selector.length() && selector[i] == '=') {
+                result += "='";
+                i++;
+                // Skip quotes if present
+                if (i < selector.length() && (selector[i] == '"' || selector[i] == '\'')) {
+                    char quote = selector[i++];
+                    while (i < selector.length() && selector[i] != quote) {
+                        result += selector[i++];
+                    }
+                    if (i < selector.length()) i++; // Skip closing quote
+                } else {
+                    // No quotes, read until ]
+                    while (i < selector.length() && selector[i] != ']') {
+                        result += selector[i++];
+                    }
+                }
+                result += "'";
+            }
+
+            // Skip to closing bracket
+            while (i < selector.length() && selector[i] != ']') i++;
+            result += ']';
+            continue;
+        }
+
+        // Regular character - part of element name
+        if (c != ' ' && c != '>' && c != '.' && c != '#' && c != '[' && !has_element) {
+            if (current_element == "*") {
+                current_element = "";
+            }
+            current_element += c;
+        }
+    }
+
+    // Flush any remaining element name
+    if (!has_element && current_element != "*") {
+        result += current_element;
+    }
+
+    return result;
+}
+
+// node.css(selector) - Convert CSS to XPath and execute
 static VALUE node_css(VALUE self, VALUE selector) {
-    rb_raise(rb_eNotImpError, "CSS selectors are not supported. Use xpath() instead. Xerces-C only supports XPath queries.");
-    return Qnil;
+    Check_Type(selector, T_STRING);
+    const char* css_str = StringValueCStr(selector);
+
+    // Convert CSS to XPath
+    std::string xpath_str = css_to_xpath(css_str);
+
+    // Call the xpath method with converted selector
+    return node_xpath(self, rb_str_new2(xpath_str.c_str()));
 }
 
 // nodeset.length / nodeset.size
@@ -1169,6 +1516,155 @@ static VALUE nodeset_to_a(VALUE self) {
     TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
 
     return rb_ary_dup(wrapper->nodes_array);
+}
+
+// nodeset.text - returns concatenated text content of all nodes
+static VALUE nodeset_text(VALUE self) {
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
+
+    std::string result;
+    long len = RARRAY_LEN(wrapper->nodes_array);
+
+    for (long i = 0; i < len; i++) {
+        VALUE node = rb_ary_entry(wrapper->nodes_array, i);
+        NodeWrapper* node_wrapper;
+        TypedData_Get_Struct(node, NodeWrapper, &node_type, node_wrapper);
+
+        if (node_wrapper->node) {
+            const XMLCh* content = node_wrapper->node->getTextContent();
+            if (content) {
+                CharStr utf8_content(content);
+                result += utf8_content.localForm();
+            }
+        }
+    }
+
+    return rb_str_new_cstr(result.c_str());
+}
+
+// nodeset.inspect / nodeset.to_s - human-readable representation
+static VALUE nodeset_inspect(VALUE self) {
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
+
+    long len = RARRAY_LEN(wrapper->nodes_array);
+    std::string result = "#<RXerces::XML::NodeSet:0x";
+
+    // Add object ID
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%016lx", (unsigned long)self);
+    result += buf;
+    result += " [";
+
+    for (long i = 0; i < len; i++) {
+        if (i > 0) result += ", ";
+
+        VALUE node = rb_ary_entry(wrapper->nodes_array, i);
+        NodeWrapper* node_wrapper;
+        TypedData_Get_Struct(node, NodeWrapper, &node_type, node_wrapper);
+
+        if (!node_wrapper->node) {
+            result += "nil";
+            continue;
+        }
+
+        DOMNode::NodeType nodeType = node_wrapper->node->getNodeType();
+
+        if (nodeType == DOMNode::ELEMENT_NODE) {
+            // For elements, show: <tag attr="value">content</tag>
+            CharStr name(node_wrapper->node->getNodeName());
+            result += "<";
+            result += name.localForm();
+
+            // Add first few attributes if present
+            DOMElement* element = dynamic_cast<DOMElement*>(node_wrapper->node);
+            if (element) {
+                DOMNamedNodeMap* attributes = element->getAttributes();
+                if (attributes && attributes->getLength() > 0) {
+                    XMLSize_t attrLen = attributes->getLength();
+                    if (attrLen > 3) attrLen = 3; // Limit to first 3 attributes
+
+                    for (XMLSize_t j = 0; j < attrLen; j++) {
+                        DOMNode* attr = attributes->item(j);
+                        CharStr attrName(attr->getNodeName());
+                        CharStr attrValue(attr->getNodeValue());
+                        result += " ";
+                        result += attrName.localForm();
+                        result += "=\"";
+                        result += attrValue.localForm();
+                        result += "\"";
+                    }
+                    if (attributes->getLength() > 3) {
+                        result += " ...";
+                    }
+                }
+            }
+
+            // Show truncated text content
+            const XMLCh* textContent = node_wrapper->node->getTextContent();
+            if (textContent && XMLString::stringLen(textContent) > 0) {
+                CharStr text(textContent);
+                std::string textStr = text.localForm();
+
+                // Trim whitespace and truncate
+                size_t start = textStr.find_first_not_of(" \t\n\r");
+                if (start != std::string::npos) {
+                    size_t end = textStr.find_last_not_of(" \t\n\r");
+                    textStr = textStr.substr(start, end - start + 1);
+
+                    if (textStr.length() > 30) {
+                        textStr = textStr.substr(0, 27) + "...";
+                    }
+
+                    result += ">";
+                    result += textStr;
+                    result += "</";
+                    result += name.localForm();
+                    result += ">";
+                } else {
+                    result += ">";
+                }
+            } else {
+                result += ">";
+            }
+        } else if (nodeType == DOMNode::TEXT_NODE) {
+            // For text nodes, show: text("content")
+            const XMLCh* textContent = node_wrapper->node->getNodeValue();
+            if (textContent) {
+                CharStr text(textContent);
+                std::string textStr = text.localForm();
+
+                // Trim and truncate
+                size_t start = textStr.find_first_not_of(" \t\n\r");
+                if (start != std::string::npos) {
+                    size_t end = textStr.find_last_not_of(" \t\n\r");
+                    textStr = textStr.substr(start, end - start + 1);
+
+                    if (textStr.length() > 30) {
+                        textStr = textStr.substr(0, 27) + "...";
+                    }
+
+                    result += "text(\"";
+                    result += textStr;
+                    result += "\")";
+                } else {
+                    result += "text()";
+                }
+            } else {
+                result += "text()";
+            }
+        } else {
+            // For other nodes, just show the type
+            CharStr name(node_wrapper->node->getNodeName());
+            result += "#<";
+            result += name.localForm();
+            result += ">";
+        }
+    }
+
+    result += "]>";
+    return rb_str_new_cstr(result.c_str());
 }
 
 // Schema.from_document(schema_doc) or Schema.from_string(xsd_string)
@@ -1362,12 +1858,17 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "root", RUBY_METHOD_FUNC(document_root), 0);
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
     rb_define_alias(rb_cDocument, "to_xml", "to_s");
+    rb_define_method(rb_cDocument, "inspect", RUBY_METHOD_FUNC(document_inspect), 0);
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
+    rb_define_method(rb_cDocument, "css", RUBY_METHOD_FUNC(document_css), 1);
     rb_define_method(rb_cDocument, "encoding", RUBY_METHOD_FUNC(document_encoding), 0);
+    rb_define_method(rb_cDocument, "text", RUBY_METHOD_FUNC(document_text), 0);
+    rb_define_alias(rb_cDocument, "content", "text");
     rb_define_method(rb_cDocument, "create_element", RUBY_METHOD_FUNC(document_create_element), 1);
 
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
     rb_undef_alloc_func(rb_cNode);
+    rb_define_method(rb_cNode, "inspect", RUBY_METHOD_FUNC(node_inspect), 0);
     rb_define_method(rb_cNode, "name", RUBY_METHOD_FUNC(node_name), 0);
     rb_define_method(rb_cNode, "namespace", RUBY_METHOD_FUNC(node_namespace), 0);
     rb_define_method(rb_cNode, "text", RUBY_METHOD_FUNC(node_text), 0);
@@ -1407,6 +1908,9 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNodeSet, "[]", RUBY_METHOD_FUNC(nodeset_at), 1);
     rb_define_method(rb_cNodeSet, "each", RUBY_METHOD_FUNC(nodeset_each), 0);
     rb_define_method(rb_cNodeSet, "to_a", RUBY_METHOD_FUNC(nodeset_to_a), 0);
+    rb_define_method(rb_cNodeSet, "text", RUBY_METHOD_FUNC(nodeset_text), 0);
+    rb_define_method(rb_cNodeSet, "inspect", RUBY_METHOD_FUNC(nodeset_inspect), 0);
+    rb_define_alias(rb_cNodeSet, "to_s", "inspect");
     rb_include_module(rb_cNodeSet, rb_mEnumerable);
 
     rb_cSchema = rb_define_class_under(rb_mXML, "Schema", rb_cObject);

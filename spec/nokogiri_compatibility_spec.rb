@@ -37,6 +37,50 @@ RSpec.describe "Nokogiri compatibility" do
     end
   end
 
+  describe "Nokogiri::HTML" do
+    it "exists" do
+      expect(defined?(Nokogiri::HTML)).to eq('constant')
+    end
+
+    describe ".parse" do
+      it "parses HTML" do
+        html = '<html><body><h1>Hello</h1></body></html>'
+        doc = Nokogiri::HTML.parse(html)
+        expect(doc).to be_a(RXerces::XML::Document)
+      end
+    end
+  end
+
+  describe "Nokogiri.HTML" do
+    it "parses HTML" do
+      html = '<html><body><h1>Hello</h1></body></html>'
+      doc = Nokogiri.HTML(html)
+      expect(doc).to be_a(RXerces::XML::Document)
+    end
+  end
+
+  describe "Nokogiri::HTML class aliases" do
+    it "aliases Document" do
+      expect(Nokogiri::HTML::Document).to eq(RXerces::XML::Document)
+    end
+
+    it "aliases Node" do
+      expect(Nokogiri::HTML::Node).to eq(RXerces::XML::Node)
+    end
+
+    it "aliases Element" do
+      expect(Nokogiri::HTML::Element).to eq(RXerces::XML::Element)
+    end
+
+    it "aliases Text" do
+      expect(Nokogiri::HTML::Text).to eq(RXerces::XML::Text)
+    end
+
+    it "aliases NodeSet" do
+      expect(Nokogiri::HTML::NodeSet).to eq(RXerces::XML::NodeSet)
+    end
+  end
+
   describe "Nokogiri::XML::Document" do
     it "is an alias for RXerces::XML::Document" do
       expect(Nokogiri::XML::Document).to eq(RXerces::XML::Document)

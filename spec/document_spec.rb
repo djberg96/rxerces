@@ -64,6 +64,65 @@ RSpec.describe RXerces::XML::Document do
     end
   end
 
+  describe "#css" do
+    # Check if Xalan support is compiled in (CSS requires XPath which needs Xalan)
+    xalan_available = begin
+      test_xml = '<root><item id="1">A</item><item id="2">B</item></root>'
+      test_doc = RXerces::XML::Document.parse(test_xml)
+      result = test_doc.xpath('//item[@id="1"]')
+      result.length == 1
+    rescue
+      false
+    end
+
+    before(:all) do
+      unless xalan_available
+        skip "Xalan-C not available - CSS selectors require Xalan-C library"
+      end
+    end
+
+    let(:xml) do
+      <<-XML
+        <library>
+          <book id="book1" class="fiction">
+            <title>1984</title>
+          </book>
+          <book id="book2" class="non-fiction">
+            <title>Sapiens</title>
+          </book>
+        </library>
+      XML
+    end
+
+    let(:doc) { RXerces::XML::Document.parse(xml) }
+
+    it "returns a NodeSet" do
+      result = doc.css('book')
+      expect(result).to be_a(RXerces::XML::NodeSet)
+    end
+
+    it "finds elements by tag name" do
+      books = doc.css('book')
+      expect(books.length).to eq(2)
+    end
+
+    it "finds elements by class" do
+      fiction = doc.css('.fiction')
+      expect(fiction.length).to eq(1)
+    end
+
+    it "finds elements by id" do
+      book = doc.css('#book1')
+      expect(book.length).to eq(1)
+      expect(book[0].xpath('.//title')[0].text.strip).to eq('1984')
+    end
+
+    it "finds elements with combined selectors" do
+      fiction_books = doc.css('book.fiction')
+      expect(fiction_books.length).to eq(1)
+    end
+  end
+
   describe "#encoding" do
     it "returns UTF-8 for documents without explicit encoding" do
       doc = RXerces::XML::Document.parse(simple_xml)

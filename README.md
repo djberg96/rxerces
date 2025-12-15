@@ -102,15 +102,26 @@ RXerces provides optional Nokogiri compatibility. Require `rxerces/nokogiri` to 
 ```ruby
 require 'rxerces/nokogiri'
 
-# Use Nokogiri syntax
+# Parse XML with Nokogiri syntax
 doc = Nokogiri.XML('<root><child>text</child></root>')
 puts doc.root.name  # => "root"
 
-# Classes are aliased
-Nokogiri::XML::Document == RXerces::XML::Document  # => true
+# Parse HTML with Nokogiri syntax
+html_doc = Nokogiri.HTML('<html><body><h1>Hello</h1></body></html>')
+puts html_doc.root.name  # => "html"
+
+# Alternative syntax
+xml_doc = Nokogiri::XML.parse('<root>text</root>')
+html_doc = Nokogiri::HTML.parse('<html>...</html>')
+
+# Classes are aliased for both XML and HTML
+Nokogiri::XML::Document == RXerces::XML::Document   # => true
+Nokogiri::HTML::Document == RXerces::XML::Document  # => true
 ```
 
 **Note:** If you don't need Nokogiri compatibility, just `require 'rxerces'` and use the `RXerces` module directly.
+
+**HTML Parsing Note:** Since RXerces uses Xerces-C (an XML parser), `Nokogiri::HTML` parses HTML as XML. This means it won't perform HTML-specific error correction or tag fixing like Nokogiri does with libxml2's HTML parser. For well-formed HTML/XHTML documents, this works fine.
 
 ### Working with Nodes
 
