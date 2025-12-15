@@ -872,6 +872,28 @@ static VALUE node_set_attribute(VALUE self, VALUE attr_name, VALUE attr_value) {
     return attr_value;
 }
 
+// node.has_attribute?(attribute_name)
+static VALUE node_has_attribute_p(VALUE self, VALUE attr_name) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node || wrapper->node->getNodeType() != DOMNode::ELEMENT_NODE) {
+        return Qfalse;
+    }
+
+    Check_Type(attr_name, T_STRING);
+    const char* attr_str = StringValueCStr(attr_name);
+
+    DOMElement* element = dynamic_cast<DOMElement*>(wrapper->node);
+    const XMLCh* value = element->getAttribute(XStr(attr_str).unicodeForm());
+
+    if (!value || XMLString::stringLen(value) == 0) {
+        return Qfalse;
+    }
+
+    return Qtrue;
+}
+
 // node.children
 static VALUE node_children(VALUE self) {
     NodeWrapper* wrapper;
@@ -1877,6 +1899,9 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_alias(rb_cNode, "content=", "text=");
     rb_define_method(rb_cNode, "[]", RUBY_METHOD_FUNC(node_get_attribute), 1);
     rb_define_method(rb_cNode, "[]=", RUBY_METHOD_FUNC(node_set_attribute), 2);
+    rb_define_alias(rb_cNode, "get_attribute", "[]");
+    rb_define_alias(rb_cNode, "attribute", "[]");
+    rb_define_method(rb_cNode, "has_attribute?", RUBY_METHOD_FUNC(node_has_attribute_p), 1);
     rb_define_method(rb_cNode, "children", RUBY_METHOD_FUNC(node_children), 0);
     rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
     rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
@@ -1894,6 +1919,9 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "at_xpath", RUBY_METHOD_FUNC(node_at_xpath), 1);
     rb_define_alias(rb_cNode, "at", "at_xpath");
     rb_define_method(rb_cNode, "css", RUBY_METHOD_FUNC(node_css), 1);
+    rb_define_alias(rb_cNode, "at_css", "at");
+    rb_define_alias(rb_cNode, "get_attribute", "[]");
+    rb_define_alias(rb_cNode, "attribute", "[]");
 
     rb_cElement = rb_define_class_under(rb_mXML, "Element", rb_cNode);
     rb_undef_alloc_func(rb_cElement);
