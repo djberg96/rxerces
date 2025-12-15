@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name        = "rxerces"
-  spec.version     = "0.3.0"
+  spec.version     = "0.4.0"
   spec.author      = "Daniel J. Berger"
   spec.email       = "djberg96@gmail.com"
   spec.cert_chain  = ["certs/djberg96_pub.pem"]
@@ -17,7 +17,10 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "rake-compiler", "~> 1.2"
   spec.add_development_dependency "rspec", "~> 3.12"
 
-  spec.description = "A Ruby XML library with Nokogiri-compatible API, powered by Xerces-C instead of libxml2"
+  spec.description = <<-EOF
+    A Ruby XML library with Nokogiri-compatible API, powered by Xerces-C
+    instead of libxml2. It also optionally uses Xalan for Xpath 1.0 compliance.
+  EOF
 
   spec.metadata = {
     'homepage_uri'          => 'https://github.com/djberg96/rxerces',

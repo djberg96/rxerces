@@ -1,3 +1,11 @@
+## 0.4.0 - 15-Dec-2025
+* Now uses Xalan if installed for xpath 1.0 compliance.
+* Added Node#search.
+* Added Node#at and Node#at_xpath.
+* Added Document#encoding.
+* Added Node#namespace.
+* Added a placeholder css method for now, it's on the TODO list.
+
 ## 0.3.0 - 14-Dec-2025
 * Added Node#parent.
 * Added Element#attributes.

@@ -39,6 +39,28 @@ sudo apt-get install libxerces-c-dev
 sudo yum install xerces-c-devel
 ```
 
+### Xalan
+
+For XPath 1.0 compliance, you will need to install the Xalan library. Note
+that this is optional, and rxerces will default to using the Xpath support
+from Xerces, which is more limited.
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install libxalan-c-dev
+```
+
+**Fedora/RHEL:**
+```bash
+sudo yum install xalan-c-devel
+```
+
+Note that MacOS, contrary to what the documentation currently says, does not
+have a brew package for Xalan. You will either need to use Mac ports or clone
+and build the code manually. I found that it required some tweaking to work:
+
+https://github.com/apache/xalan-c/pull/44
+
 ### Install the Gem
 
 Add this line to your application's Gemfile:
