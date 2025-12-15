@@ -1,3 +1,10 @@
+## 0.5.0 - 16-Dec-2025
+* Implemented a real css method. Requires Xalan to be installed.
+* Added text/content methods for most classes.
+* Added a nicer inspect method for most classes.
+* Added an HTML alias for XML, mainly for compatibility with nokogiri,
+  but keep in mind that this library parses HTML as XML.
+
 ## 0.4.0 - 15-Dec-2025
 * Now uses Xalan if installed for xpath 1.0 compliance.
 * Added Node#search.
