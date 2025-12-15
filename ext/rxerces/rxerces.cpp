@@ -1348,6 +1348,130 @@ static VALUE nodeset_to_a(VALUE self) {
     return rb_ary_dup(wrapper->nodes_array);
 }
 
+// nodeset.inspect / nodeset.to_s - human-readable representation
+static VALUE nodeset_inspect(VALUE self) {
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
+
+    long len = RARRAY_LEN(wrapper->nodes_array);
+    std::string result = "#<RXerces::XML::NodeSet:0x";
+
+    // Add object ID
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%016lx", (unsigned long)self);
+    result += buf;
+    result += " [";
+
+    for (long i = 0; i < len; i++) {
+        if (i > 0) result += ", ";
+
+        VALUE node = rb_ary_entry(wrapper->nodes_array, i);
+        NodeWrapper* node_wrapper;
+        TypedData_Get_Struct(node, NodeWrapper, &node_type, node_wrapper);
+
+        if (!node_wrapper->node) {
+            result += "nil";
+            continue;
+        }
+
+        DOMNode::NodeType nodeType = node_wrapper->node->getNodeType();
+
+        if (nodeType == DOMNode::ELEMENT_NODE) {
+            // For elements, show: <tag attr="value">content</tag>
+            CharStr name(node_wrapper->node->getNodeName());
+            result += "<";
+            result += name.localForm();
+
+            // Add first few attributes if present
+            DOMElement* element = dynamic_cast<DOMElement*>(node_wrapper->node);
+            if (element) {
+                DOMNamedNodeMap* attributes = element->getAttributes();
+                if (attributes && attributes->getLength() > 0) {
+                    XMLSize_t attrLen = attributes->getLength();
+                    if (attrLen > 3) attrLen = 3; // Limit to first 3 attributes
+
+                    for (XMLSize_t j = 0; j < attrLen; j++) {
+                        DOMNode* attr = attributes->item(j);
+                        CharStr attrName(attr->getNodeName());
+                        CharStr attrValue(attr->getNodeValue());
+                        result += " ";
+                        result += attrName.localForm();
+                        result += "=\"";
+                        result += attrValue.localForm();
+                        result += "\"";
+                    }
+                    if (attributes->getLength() > 3) {
+                        result += " ...";
+                    }
+                }
+            }
+
+            // Show truncated text content
+            const XMLCh* textContent = node_wrapper->node->getTextContent();
+            if (textContent && XMLString::stringLen(textContent) > 0) {
+                CharStr text(textContent);
+                std::string textStr = text.localForm();
+
+                // Trim whitespace and truncate
+                size_t start = textStr.find_first_not_of(" \t\n\r");
+                if (start != std::string::npos) {
+                    size_t end = textStr.find_last_not_of(" \t\n\r");
+                    textStr = textStr.substr(start, end - start + 1);
+
+                    if (textStr.length() > 30) {
+                        textStr = textStr.substr(0, 27) + "...";
+                    }
+
+                    result += ">";
+                    result += textStr;
+                    result += "</";
+                    result += name.localForm();
+                    result += ">";
+                } else {
+                    result += ">";
+                }
+            } else {
+                result += ">";
+            }
+        } else if (nodeType == DOMNode::TEXT_NODE) {
+            // For text nodes, show: text("content")
+            const XMLCh* textContent = node_wrapper->node->getNodeValue();
+            if (textContent) {
+                CharStr text(textContent);
+                std::string textStr = text.localForm();
+
+                // Trim and truncate
+                size_t start = textStr.find_first_not_of(" \t\n\r");
+                if (start != std::string::npos) {
+                    size_t end = textStr.find_last_not_of(" \t\n\r");
+                    textStr = textStr.substr(start, end - start + 1);
+
+                    if (textStr.length() > 30) {
+                        textStr = textStr.substr(0, 27) + "...";
+                    }
+
+                    result += "text(\"";
+                    result += textStr;
+                    result += "\")";
+                } else {
+                    result += "text()";
+                }
+            } else {
+                result += "text()";
+            }
+        } else {
+            // For other nodes, just show the type
+            CharStr name(node_wrapper->node->getNodeName());
+            result += "#<";
+            result += name.localForm();
+            result += ">";
+        }
+    }
+
+    result += "]>";
+    return rb_str_new_cstr(result.c_str());
+}
+
 // Schema.from_document(schema_doc) or Schema.from_string(xsd_string)
 static VALUE schema_from_document(int argc, VALUE* argv, VALUE klass) {
     VALUE schema_source;
@@ -1585,6 +1709,8 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNodeSet, "[]", RUBY_METHOD_FUNC(nodeset_at), 1);
     rb_define_method(rb_cNodeSet, "each", RUBY_METHOD_FUNC(nodeset_each), 0);
     rb_define_method(rb_cNodeSet, "to_a", RUBY_METHOD_FUNC(nodeset_to_a), 0);
+    rb_define_method(rb_cNodeSet, "inspect", RUBY_METHOD_FUNC(nodeset_inspect), 0);
+    rb_define_alias(rb_cNodeSet, "to_s", "inspect");
     rb_include_module(rb_cNodeSet, rb_mEnumerable);
 
     rb_cSchema = rb_define_class_under(rb_mXML, "Schema", rb_cObject);
