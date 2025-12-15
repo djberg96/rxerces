@@ -294,7 +294,7 @@ bundle exec rake
 
 - Uses Apache Xerces-C 3.x for XML parsing
 - C++ extension compiled with Ruby's native extension API
-- XPath support is basic (full XPath requires additional implementation)
+- XPath support is basic by default (full XPath requires Xalan)
 - Memory management handled by Ruby's GC and Xerces-C's DOM
 
 ## Differences from Nokogiri
