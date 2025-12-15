@@ -35,6 +35,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y libxerces-c-dev
+        sudo apt-get install -y libxalan-c-dev
 
     - name: Install Xerces-C (macOS)
       if: runner.os == 'macOS'
