@@ -1124,10 +1124,172 @@ static VALUE node_at_xpath(VALUE self, VALUE path) {
     return rb_ary_entry(wrapper->nodes_array, 0);
 }
 
-// node.css(selector) - CSS selectors not supported
+// Helper function to convert basic CSS selectors to XPath
+// Supports common patterns like: tag, .class, #id, tag.class, tag#id, [attr], [attr=value]
+static std::string css_to_xpath(const char* css) {
+    std::string selector(css);
+
+    // Trim whitespace
+    size_t start = selector.find_first_not_of(" \t\n\r");
+    size_t end = selector.find_last_not_of(" \t\n\r");
+    if (start == std::string::npos) return "//*";
+    selector = selector.substr(start, end - start + 1);
+
+    std::string result = "//";
+    std::string current_element = "*";
+    bool has_element = false;
+    bool in_brackets = false;
+
+    for (size_t i = 0; i < selector.length(); i++) {
+        char c = selector[i];
+
+        if (c == '[') in_brackets = true;
+        if (c == ']') in_brackets = false;
+
+        // Handle spaces (descendant combinator) outside of attribute selectors
+        if (c == ' ' && !in_brackets) {
+            // Flush current element
+            if (!has_element && current_element != "*") {
+                result += current_element;
+            }
+            // Skip multiple spaces
+            while (i + 1 < selector.length() && selector[i + 1] == ' ') i++;
+            result += "//";
+            current_element = "*";
+            has_element = false;
+            continue;
+        }
+
+        // Handle child combinator
+        if (c == '>' && !in_brackets) {
+            // Flush current element
+            if (!has_element && current_element != "*") {
+                result += current_element;
+            }
+            // Remove any trailing slashes and spaces
+            while (!result.empty() && (result.back() == ' ' || result.back() == '/')) {
+                if (result.back() == '/') {
+                    result.pop_back();
+                    break;
+                }
+                result.pop_back();
+            }
+            result += "/";
+            // Skip spaces after >
+            while (i + 1 < selector.length() && selector[i + 1] == ' ') i++;
+            current_element = "*";
+            has_element = false;
+            continue;
+        }
+
+        // Handle ID selector
+        if (c == '#' && !in_brackets) {
+            if (!has_element) {
+                result += "*";
+                has_element = true;
+            } else if (current_element != "*") {
+                result += current_element;
+                current_element = "*";
+                has_element = true;
+            }
+            result += "[@id='";
+            i++;
+            while (i < selector.length() && selector[i] != ' ' && selector[i] != '.' &&
+                   selector[i] != '[' && selector[i] != '>' && selector[i] != '+' && selector[i] != '~') {
+                result += selector[i++];
+            }
+            result += "']";
+            i--;
+            continue;
+        }
+
+        // Handle class selector
+        if (c == '.' && !in_brackets) {
+            if (!has_element) {
+                result += "*";
+                has_element = true;
+            } else if (current_element != "*") {
+                result += current_element;
+                current_element = "*";
+                has_element = true;
+            }
+            result += "[contains(concat(' ', @class, ' '), ' ";
+            i++;
+            while (i < selector.length() && selector[i] != ' ' && selector[i] != '.' &&
+                   selector[i] != '[' && selector[i] != '>' && selector[i] != '+' && selector[i] != '~' && selector[i] != '#') {
+                result += selector[i++];
+            }
+            result += " ')]";
+            i--;
+            continue;
+        }
+
+        // Handle attribute selectors
+        if (c == '[') {
+            if (!has_element && current_element != "*") {
+                result += current_element;
+                has_element = true;
+            }
+            result += "[@";
+            i++;
+            // Get attribute name
+            while (i < selector.length() && selector[i] != ']' && selector[i] != '=' &&
+                   selector[i] != '!' && selector[i] != '~' && selector[i] != '^' && selector[i] != '$' && selector[i] != '*') {
+                result += selector[i++];
+            }
+
+            if (i < selector.length() && selector[i] == '=') {
+                result += "='";
+                i++;
+                // Skip quotes if present
+                if (i < selector.length() && (selector[i] == '"' || selector[i] == '\'')) {
+                    char quote = selector[i++];
+                    while (i < selector.length() && selector[i] != quote) {
+                        result += selector[i++];
+                    }
+                    if (i < selector.length()) i++; // Skip closing quote
+                } else {
+                    // No quotes, read until ]
+                    while (i < selector.length() && selector[i] != ']') {
+                        result += selector[i++];
+                    }
+                }
+                result += "'";
+            }
+
+            // Skip to closing bracket
+            while (i < selector.length() && selector[i] != ']') i++;
+            result += ']';
+            continue;
+        }
+
+        // Regular character - part of element name
+        if (c != ' ' && c != '>' && c != '.' && c != '#' && c != '[' && !has_element) {
+            if (current_element == "*") {
+                current_element = "";
+            }
+            current_element += c;
+        }
+    }
+
+    // Flush any remaining element name
+    if (!has_element && current_element != "*") {
+        result += current_element;
+    }
+
+    return result;
+}
+
+// node.css(selector) - Convert CSS to XPath and execute
 static VALUE node_css(VALUE self, VALUE selector) {
-    rb_raise(rb_eNotImpError, "CSS selectors are not supported. Use xpath() instead. Xerces-C only supports XPath queries.");
-    return Qnil;
+    Check_Type(selector, T_STRING);
+    const char* css_str = StringValueCStr(selector);
+
+    // Convert CSS to XPath
+    std::string xpath_str = css_to_xpath(css_str);
+
+    // Call the xpath method with converted selector
+    return node_xpath(self, rb_str_new2(xpath_str.c_str()));
 }
 
 // nodeset.length / nodeset.size
