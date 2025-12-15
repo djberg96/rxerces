@@ -404,6 +404,29 @@ static VALUE document_encoding(VALUE self) {
     return rb_str_new_cstr(utf8_encoding.localForm());
 }
 
+// document.text / document.content - returns text content of entire document
+static VALUE document_text(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    if (!wrapper->doc) {
+        return rb_str_new_cstr("");
+    }
+
+    DOMElement* root = wrapper->doc->getDocumentElement();
+    if (!root) {
+        return rb_str_new_cstr("");
+    }
+
+    const XMLCh* content = root->getTextContent();
+    if (!content) {
+        return rb_str_new_cstr("");
+    }
+
+    CharStr utf8_content(content);
+    return rb_str_new_cstr(utf8_content.localForm());
+}
+
 // document.create_element(name)
 static VALUE document_create_element(VALUE self, VALUE name) {
     DocumentWrapper* doc_wrapper;
@@ -1839,6 +1862,8 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
     rb_define_method(rb_cDocument, "css", RUBY_METHOD_FUNC(document_css), 1);
     rb_define_method(rb_cDocument, "encoding", RUBY_METHOD_FUNC(document_encoding), 0);
+    rb_define_method(rb_cDocument, "text", RUBY_METHOD_FUNC(document_text), 0);
+    rb_define_alias(rb_cDocument, "content", "text");
     rb_define_method(rb_cDocument, "create_element", RUBY_METHOD_FUNC(document_create_element), 1);
 
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
