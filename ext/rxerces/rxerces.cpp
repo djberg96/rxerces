@@ -51,6 +51,9 @@ static bool xerces_initialized = false;
 static bool xalan_initialized = false;
 #endif
 
+// Forward declarations
+static std::string css_to_xpath(const char* css);
+
 // Helper class to manage XMLCh strings
 class XStr {
 public:
@@ -573,6 +576,18 @@ static VALUE document_xpath(VALUE self, VALUE path) {
     wrapper->nodes_array = rb_ary_new();
     return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
 #endif
+}
+
+// document.css(selector) - Convert CSS to XPath and execute
+static VALUE document_css(VALUE self, VALUE selector) {
+    Check_Type(selector, T_STRING);
+    const char* css_str = StringValueCStr(selector);
+
+    // Convert CSS to XPath
+    std::string xpath_str = css_to_xpath(css_str);
+
+    // Call the xpath method with converted selector
+    return document_xpath(self, rb_str_new2(xpath_str.c_str()));
 }
 
 // node.name
@@ -1525,6 +1540,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
     rb_define_alias(rb_cDocument, "to_xml", "to_s");
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
+    rb_define_method(rb_cDocument, "css", RUBY_METHOD_FUNC(document_css), 1);
     rb_define_method(rb_cDocument, "encoding", RUBY_METHOD_FUNC(document_encoding), 0);
     rb_define_method(rb_cDocument, "create_element", RUBY_METHOD_FUNC(document_create_element), 1);
 
