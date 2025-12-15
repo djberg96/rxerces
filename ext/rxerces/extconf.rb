@@ -29,4 +29,46 @@ unless find_header('xercesc/util/PlatformUtils.hpp')
   puts "Proceeding with compilation..."
 end
 
+# Check for Xalan-C (optional for enhanced XPath support)
+# Use dir_config which handles --with-xalan-dir and --with-xalan-include/lib
+dir_config('xalan')
+
+# Also try to auto-detect in common locations
+if RUBY_PLATFORM =~ /darwin/
+  homebrew_xalan = `brew --prefix xalan-c 2>/dev/null`.chomp
+  if !homebrew_xalan.empty? && File.directory?(homebrew_xalan)
+    $INCFLAGS << " -I#{homebrew_xalan}/include" unless $INCFLAGS.include?("-I#{homebrew_xalan}/include")
+    $LDFLAGS << " -L#{homebrew_xalan}/lib" unless $LDFLAGS.include?("-L#{homebrew_xalan}/lib")
+  end
+end
+
+# Try standard locations
+xalan_found_prefix = nil
+['/usr/local', '/opt/local', '/usr'].each do |prefix|
+  if File.directory?("#{prefix}/include/xalanc")
+    $INCFLAGS << " -I#{prefix}/include" unless $INCFLAGS.include?("-I#{prefix}/include")
+    $LDFLAGS << " -L#{prefix}/lib" unless $LDFLAGS.include?("-L#{prefix}/lib")
+    xalan_found_prefix = prefix
+    break
+  end
+end
+
+# Check for Xalan libraries
+# Note: We skip the header check because Xalan C++ headers require C++ compilation
+# which mkmf's find_header doesn't handle well. The library check is sufficient.
+if have_library('xalanMsg') && have_library('xalan-c')
+  $CXXFLAGS << " -DHAVE_XALAN"
+  # Add rpath so the dynamic libraries can be found at runtime
+  if xalan_found_prefix
+    $LDFLAGS << " -Wl,-rpath,#{xalan_found_prefix}/lib"
+  end
+  puts "Xalan-C found: Full XPath 1.0 support enabled"
+else
+  puts "Xalan-C not found: Using Xerces XPath subset"
+  puts "For full XPath 1.0 support, install Xalan-C:"
+  puts "  macOS: Build from source (no homebrew formula available)"
+  puts "  Linux: May be available via package manager"
+  puts "  Or specify: --with-xalan-dir=/path/to/xalan"
+end
+
 create_makefile('rxerces/rxerces')

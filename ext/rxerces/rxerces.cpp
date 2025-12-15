@@ -13,7 +13,28 @@
 #include <sstream>
 #include <vector>
 
+#ifdef HAVE_XALAN
+#include <xalanc/XPath/XPathEvaluator.hpp>
+#include <xalanc/XPath/NodeRefList.hpp>
+#include <xalanc/XPath/XObject.hpp>
+#include <xalanc/XPath/XObjectFactoryDefault.hpp>
+#include <xalanc/XPath/XPathEnvSupportDefault.hpp>
+#include <xalanc/XPath/XPathExecutionContextDefault.hpp>
+#include <xalanc/XPath/XPathConstructionContextDefault.hpp>
+#include <xalanc/XPath/ElementPrefixResolverProxy.hpp>
+#include <xalanc/XPath/XPathFactoryDefault.hpp>
+#include <xalanc/XPath/XPathProcessorImpl.hpp>
+#include <xalanc/XPath/XPath.hpp>
+#include <xalanc/XercesParserLiaison/XercesParserLiaison.hpp>
+#include <xalanc/XercesParserLiaison/XercesDOMSupport.hpp>
+#include <xalanc/XercesParserLiaison/XercesDocumentWrapper.hpp>
+#include <xalanc/PlatformSupport/XalanMemoryManagerDefault.hpp>
+#endif
+
 using namespace xercesc;
+#ifdef HAVE_XALAN
+using namespace xalanc;
+#endif
 
 VALUE rb_mRXerces;
 VALUE rb_mXML;
@@ -24,8 +45,11 @@ VALUE rb_cElement;
 VALUE rb_cText;
 VALUE rb_cSchema;
 
-// Xerces initialization flag
+// Initialization flags
 static bool xerces_initialized = false;
+#ifdef HAVE_XALAN
+static bool xalan_initialized = false;
+#endif
 
 // Helper class to manage XMLCh strings
 class XStr {
@@ -373,6 +397,107 @@ static VALUE document_create_element(VALUE self, VALUE name) {
     return Qnil;
 }
 
+#ifdef HAVE_XALAN
+// Helper function to execute XPath using Xalan for full XPath 1.0 support
+static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_str, VALUE doc_ref) {
+    try {
+        // Initialize Xalan if needed
+        if (!xalan_initialized) {
+            XPathEvaluator::initialize();
+            XMLPlatformUtils::Initialize();
+            xalan_initialized = true;
+        }
+
+        // Get the document
+        DOMDocument* domDoc = context_node->getOwnerDocument();
+        if (!domDoc && context_node->getNodeType() == DOMNode::DOCUMENT_NODE) {
+            domDoc = static_cast<DOMDocument*>(context_node);
+        }
+
+        if (!domDoc) {
+            NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+            wrapper->nodes_array = rb_ary_new();
+            return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+        }
+
+        // Create Xalan support objects
+        XercesParserLiaison liaison;
+        XercesDOMSupport domSupport(liaison);
+
+        // Create Xalan document - this creates and returns a XercesDocumentWrapper
+        XalanDocument* xalanDoc = liaison.createDocument(domDoc, false, false, false);
+        if (!xalanDoc) {
+            rb_raise(rb_eRuntimeError, "Failed to create Xalan document wrapper");
+        }
+
+        // The document IS the wrapper
+        XercesDocumentWrapper* docWrapper = static_cast<XercesDocumentWrapper*>(xalanDoc);
+
+        // Map the context node to Xalan
+        XalanNode* xalanContextNode = docWrapper->mapNode(context_node);
+        if (!xalanContextNode) {
+            xalanContextNode = docWrapper;
+        }
+
+        // Set up XPath factories and contexts
+        XPathEnvSupportDefault envSupport;
+        XObjectFactoryDefault objectFactory;
+        XPathExecutionContextDefault executionContext(envSupport, domSupport, objectFactory);
+        XPathConstructionContextDefault constructionContext;
+        XPathFactoryDefault factory;
+
+        // Create XPath
+        XPathProcessorImpl processor;
+        XPath* xpath = factory.create();
+
+        // Compile XPath expression
+        ElementPrefixResolverProxy resolver(docWrapper->getDocumentElement(), envSupport, domSupport);
+        processor.initXPath(*xpath, constructionContext, XalanDOMString(xpath_str), resolver);
+
+        // Execute XPath query
+        const XObjectPtr result = xpath->execute(xalanContextNode, resolver, executionContext);
+
+        VALUE nodes_array = rb_ary_new();
+
+        if (result.get() != 0) {
+            // Check if result is a node set
+            const NodeRefListBase& nodeList = result->nodeset();
+            const NodeRefListBase::size_type length = nodeList.getLength();
+
+            for (NodeRefListBase::size_type i = 0; i < length; ++i) {
+                XalanNode* xalanNode = nodeList.item(i);
+                if (xalanNode) {
+                    // Map back to Xerces DOM node
+                    const DOMNode* domNode = docWrapper->mapNode(xalanNode);
+                    if (domNode) {
+                        rb_ary_push(nodes_array, wrap_node(const_cast<DOMNode*>(domNode), doc_ref));
+                    }
+                }
+            }
+        }
+
+        factory.returnObject(xpath);
+
+        NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+        wrapper->nodes_array = nodes_array;
+        return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+
+    } catch (const XalanXPathException& e) {
+        CharStr msg(e.getMessage().c_str());
+        rb_raise(rb_eRuntimeError, "XPath error: %s", msg.localForm());
+    } catch (const XMLException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "XML error: %s", message.localForm());
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Unknown XPath error");
+    }
+
+    NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+    wrapper->nodes_array = rb_ary_new();
+    return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+}
+#endif
+
 // document.xpath(path)
 static VALUE document_xpath(VALUE self, VALUE path) {
     DocumentWrapper* doc_wrapper;
@@ -387,6 +512,17 @@ static VALUE document_xpath(VALUE self, VALUE path) {
     Check_Type(path, T_STRING);
     const char* xpath_str = StringValueCStr(path);
 
+#ifdef HAVE_XALAN
+    // Use Xalan for full XPath 1.0 support
+    DOMElement* root = doc_wrapper->doc->getDocumentElement();
+    if (!root) {
+        NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
+        wrapper->nodes_array = rb_ary_new();
+        return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+    }
+    return execute_xpath_with_xalan(root, xpath_str, self);
+#else
+    // Fall back to Xerces XPath subset
     try {
         DOMElement* root = doc_wrapper->doc->getDocumentElement();
         if (!root) {
@@ -436,6 +572,7 @@ static VALUE document_xpath(VALUE self, VALUE path) {
     NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
     wrapper->nodes_array = rb_ary_new();
     return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+#endif
 }
 
 // node.name
@@ -917,6 +1054,11 @@ static VALUE node_xpath(VALUE self, VALUE path) {
     const char* xpath_str = StringValueCStr(path);
     VALUE doc_ref = rb_iv_get(self, "@document");
 
+#ifdef HAVE_XALAN
+    // Use Xalan for full XPath 1.0 support
+    return execute_xpath_with_xalan(node_wrapper->node, xpath_str, doc_ref);
+#else
+    // Fall back to Xerces XPath subset
     try {
         DOMDocument* doc = node_wrapper->node->getOwnerDocument();
         if (!doc) {
@@ -966,6 +1108,7 @@ static VALUE node_xpath(VALUE self, VALUE path) {
     NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
     wrapper->nodes_array = rb_ary_new();
     return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+#endif
 }
 
 // node.at_xpath(path) - returns first matching node or nil
