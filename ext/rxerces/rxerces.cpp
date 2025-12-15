@@ -1495,6 +1495,31 @@ static VALUE nodeset_to_a(VALUE self) {
     return rb_ary_dup(wrapper->nodes_array);
 }
 
+// nodeset.text - returns concatenated text content of all nodes
+static VALUE nodeset_text(VALUE self) {
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
+
+    std::string result;
+    long len = RARRAY_LEN(wrapper->nodes_array);
+
+    for (long i = 0; i < len; i++) {
+        VALUE node = rb_ary_entry(wrapper->nodes_array, i);
+        NodeWrapper* node_wrapper;
+        TypedData_Get_Struct(node, NodeWrapper, &node_type, node_wrapper);
+
+        if (node_wrapper->node) {
+            const XMLCh* content = node_wrapper->node->getTextContent();
+            if (content) {
+                CharStr utf8_content(content);
+                result += utf8_content.localForm();
+            }
+        }
+    }
+
+    return rb_str_new_cstr(result.c_str());
+}
+
 // nodeset.inspect / nodeset.to_s - human-readable representation
 static VALUE nodeset_inspect(VALUE self) {
     NodeSetWrapper* wrapper;
@@ -1858,6 +1883,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNodeSet, "[]", RUBY_METHOD_FUNC(nodeset_at), 1);
     rb_define_method(rb_cNodeSet, "each", RUBY_METHOD_FUNC(nodeset_each), 0);
     rb_define_method(rb_cNodeSet, "to_a", RUBY_METHOD_FUNC(nodeset_to_a), 0);
+    rb_define_method(rb_cNodeSet, "text", RUBY_METHOD_FUNC(nodeset_text), 0);
     rb_define_method(rb_cNodeSet, "inspect", RUBY_METHOD_FUNC(nodeset_inspect), 0);
     rb_define_alias(rb_cNodeSet, "to_s", "inspect");
     rb_include_module(rb_cNodeSet, rb_mEnumerable);
