@@ -178,7 +178,7 @@ puts doc.to_s
 
 ### XPath Queries
 
-RXerces supports XPath queries using Xerces-C's XPath implementation:
+RXerces supports XPath queries using Xerces-C's XPath implementation by default:
 
 ```ruby
 xml = <<-XML
@@ -227,6 +227,8 @@ Not supported:
 - Comparison operators in predicates
 
 For more complex queries, you can combine basic XPath with Ruby's `select` and `find` methods.
+
+For full XPath 1.0 support, install the Xalan library.
 
 ## API Reference
 
