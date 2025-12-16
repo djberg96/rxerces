@@ -623,8 +623,9 @@ static VALUE document_xpath(VALUE self, VALUE path) {
         }
 
         DOMXPathNSResolver* resolver = doc_wrapper->doc->createNSResolver(root);
+        XStr xpath_xstr(xpath_str);
         DOMXPathExpression* expression = doc_wrapper->doc->createExpression(
-            XStr(xpath_str).unicodeForm(), resolver);
+            xpath_xstr.unicodeForm(), resolver);
 
         DOMXPathResult* result = expression->evaluate(
             doc_wrapper->doc->getDocumentElement(),
@@ -863,7 +864,8 @@ static VALUE node_text_set(VALUE self, VALUE text) {
     Check_Type(text, T_STRING);
     const char* text_str = StringValueCStr(text);
 
-    wrapper->node->setTextContent(XStr(text_str).unicodeForm());
+    XStr text_xstr(text_str);
+    wrapper->node->setTextContent(text_xstr.unicodeForm());
 
     return text;
 }
@@ -881,7 +883,8 @@ static VALUE node_get_attribute(VALUE self, VALUE attr_name) {
     const char* attr_str = StringValueCStr(attr_name);
 
     DOMElement* element = dynamic_cast<DOMElement*>(wrapper->node);
-    const XMLCh* value = element->getAttribute(XStr(attr_str).unicodeForm());
+    XStr attr_xstr(attr_str);
+    const XMLCh* value = element->getAttribute(attr_xstr.unicodeForm());
 
     if (!value || XMLString::stringLen(value) == 0) {
         return Qnil;
@@ -907,7 +910,9 @@ static VALUE node_set_attribute(VALUE self, VALUE attr_name, VALUE attr_value) {
     const char* value_str = StringValueCStr(attr_value);
 
     DOMElement* element = dynamic_cast<DOMElement*>(wrapper->node);
-    element->setAttribute(XStr(attr_str).unicodeForm(), XStr(value_str).unicodeForm());
+    XStr attr_xstr(attr_str);
+    XStr value_xstr(value_str);
+    element->setAttribute(attr_xstr.unicodeForm(), value_xstr.unicodeForm());
 
     return attr_value;
 }
@@ -925,7 +930,8 @@ static VALUE node_has_attribute_p(VALUE self, VALUE attr_name) {
     const char* attr_str = StringValueCStr(attr_name);
 
     DOMElement* element = dynamic_cast<DOMElement*>(wrapper->node);
-    const XMLCh* value = element->getAttribute(XStr(attr_str).unicodeForm());
+    XStr attr_xstr(attr_str);
+    const XMLCh* value = element->getAttribute(attr_xstr.unicodeForm());
 
     if (!value || XMLString::stringLen(value) == 0) {
         return Qfalse;
@@ -1279,7 +1285,8 @@ static VALUE node_inner_html(VALUE self) {
     }
 
     try {
-        DOMImplementation* impl = DOMImplementationRegistry::getDOMImplementation(XStr("LS").unicodeForm());
+        XStr ls_name("LS");
+        DOMImplementation* impl = DOMImplementationRegistry::getDOMImplementation(ls_name.unicodeForm());
         DOMLSSerializer* serializer = ((DOMImplementationLS*)impl)->createLSSerializer();
 
         // Build a string by serializing each child
@@ -1460,8 +1467,9 @@ static VALUE node_xpath(VALUE self, VALUE path) {
         }
 
         DOMXPathNSResolver* resolver = doc->createNSResolver(node_wrapper->node);
+        XStr xpath_xstr(xpath_str);
         DOMXPathExpression* expression = doc->createExpression(
-            XStr(xpath_str).unicodeForm(), resolver);
+            xpath_xstr.unicodeForm(), resolver);
 
         DOMXPathResult* result = expression->evaluate(
             node_wrapper->node,
