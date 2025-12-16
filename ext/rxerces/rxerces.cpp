@@ -918,6 +918,31 @@ static VALUE node_children(VALUE self) {
     return children;
 }
 
+// node.element_children - returns only element children (no text nodes)
+static VALUE node_element_children(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    VALUE doc_ref = rb_iv_get(self, "@document");
+    VALUE children = rb_ary_new();
+
+    if (!wrapper->node) {
+        return children;
+    }
+
+    DOMNodeList* child_nodes = wrapper->node->getChildNodes();
+    XMLSize_t count = child_nodes->getLength();
+
+    for (XMLSize_t i = 0; i < count; i++) {
+        DOMNode* child = child_nodes->item(i);
+        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
+            rb_ary_push(children, wrap_node(child, doc_ref));
+        }
+    }
+
+    return children;
+}
+
 // node.parent
 static VALUE node_parent(VALUE self) {
     NodeWrapper* wrapper;
@@ -1006,6 +1031,54 @@ static VALUE node_previous_sibling(VALUE self) {
     }
 
     VALUE doc_ref = rb_iv_get(self, "@document");
+    return wrap_node(prev, doc_ref);
+}
+
+// node.next_element - next sibling that is an element (skipping text nodes)
+static VALUE node_next_element(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    VALUE doc_ref = rb_iv_get(self, "@document");
+    DOMNode* next = wrapper->node->getNextSibling();
+
+    // Skip non-element nodes
+    while (next && next->getNodeType() != DOMNode::ELEMENT_NODE) {
+        next = next->getNextSibling();
+    }
+
+    if (!next) {
+        return Qnil;
+    }
+
+    return wrap_node(next, doc_ref);
+}
+
+// node.previous_element - previous sibling that is an element (skipping text nodes)
+static VALUE node_previous_element(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    VALUE doc_ref = rb_iv_get(self, "@document");
+    DOMNode* prev = wrapper->node->getPreviousSibling();
+
+    // Skip non-element nodes
+    while (prev && prev->getNodeType() != DOMNode::ELEMENT_NODE) {
+        prev = prev->getPreviousSibling();
+    }
+
+    if (!prev) {
+        return Qnil;
+    }
+
     return wrap_node(prev, doc_ref);
 }
 
@@ -1967,10 +2040,14 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_alias(rb_cNode, "attribute", "[]");
     rb_define_method(rb_cNode, "has_attribute?", RUBY_METHOD_FUNC(node_has_attribute_p), 1);
     rb_define_method(rb_cNode, "children", RUBY_METHOD_FUNC(node_children), 0);
+    rb_define_method(rb_cNode, "element_children", RUBY_METHOD_FUNC(node_element_children), 0);
+    rb_define_alias(rb_cNode, "elements", "element_children");
     rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
     rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
     rb_define_method(rb_cNode, "next_sibling", RUBY_METHOD_FUNC(node_next_sibling), 0);
+    rb_define_method(rb_cNode, "next_element", RUBY_METHOD_FUNC(node_next_element), 0);
     rb_define_method(rb_cNode, "previous_sibling", RUBY_METHOD_FUNC(node_previous_sibling), 0);
+    rb_define_method(rb_cNode, "previous_element", RUBY_METHOD_FUNC(node_previous_element), 0);
     rb_define_method(rb_cNode, "add_child", RUBY_METHOD_FUNC(node_add_child), 1);
     rb_define_method(rb_cNode, "remove", RUBY_METHOD_FUNC(node_remove), 0);
     rb_define_alias(rb_cNode, "unlink", "remove");

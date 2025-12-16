@@ -315,6 +315,103 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#element_children" do
+    it "returns only element children, filtering out text nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      element_children = person.element_children
+
+      expect(element_children).to be_an(Array)
+      expect(element_children.all? { |n| n.is_a?(RXerces::XML::Element) }).to be true
+      expect(element_children.length).to eq(2) # age and city elements
+      expect(element_children.map(&:name)).to match_array(['age', 'city'])
+    end
+
+    it "returns empty array for elements with no element children" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      age = person.element_children.find { |n| n.name == 'age' }
+      expect(age.element_children).to be_empty
+    end
+
+    it "returns empty array for text nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      text_node = person.children.find { |n| n.is_a?(RXerces::XML::Text) }
+      expect(text_node.element_children).to be_empty if text_node
+    end
+  end
+
+  describe "#elements" do
+    it "is an alias for element_children" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.elements.map(&:name)).to eq(person.element_children.map(&:name))
+      expect(person.elements.length).to eq(2)
+    end
+  end
+
+  describe "#next_element" do
+    it "returns the next element sibling, skipping text nodes" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      first_person = people[0]
+      next_element = first_person.next_element
+
+      expect(next_element).to be_a(RXerces::XML::Element)
+      expect(next_element.name).to eq('person')
+      expect(next_element['id']).to eq('2')
+    end
+
+    it "returns nil when there is no next element" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      last_person = people.last
+      expect(last_person.next_element).to be_nil
+    end
+
+    it "can navigate through all element siblings" do
+      first_element = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      siblings = []
+      current = first_element
+
+      while current
+        siblings << current
+        current = current.next_element
+      end
+
+      expect(siblings.length).to eq(2)
+      expect(siblings[0]['id']).to eq('1')
+      expect(siblings[1]['id']).to eq('2')
+    end
+  end
+
+  describe "#previous_element" do
+    it "returns the previous element sibling, skipping text nodes" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      second_person = people[1]
+      prev_element = second_person.previous_element
+
+      expect(prev_element).to be_a(RXerces::XML::Element)
+      expect(prev_element.name).to eq('person')
+      expect(prev_element['id']).to eq('1')
+    end
+
+    it "returns nil when there is no previous element" do
+      first_element = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(first_element.previous_element).to be_nil
+    end
+
+    it "can navigate backward through all element siblings" do
+      last_element = root.children.select { |n| n.is_a?(RXerces::XML::Element) }.last
+      siblings = []
+      current = last_element
+
+      while current
+        siblings.unshift(current)
+        current = current.previous_element
+      end
+
+      expect(siblings.length).to eq(2)
+      expect(siblings[0]['id']).to eq('1')
+      expect(siblings[1]['id']).to eq('2')
+    end
+  end
+
   describe "#add_child" do
     it "adds a text node from a string" do
       person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
