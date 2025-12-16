@@ -110,6 +110,40 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#get_attribute" do
+    it "is an alias for []" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.get_attribute('id')).to eq('1')
+      expect(person.get_attribute('name')).to eq('Alice')
+    end
+  end
+
+  describe "#attribute" do
+    it "is an alias for []" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.attribute('id')).to eq('1')
+      expect(person.attribute('name')).to eq('Alice')
+    end
+  end
+
+  describe "#has_attribute?" do
+    it "returns true when attribute exists" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.has_attribute?('id')).to be true
+      expect(person.has_attribute?('name')).to be true
+    end
+
+    it "returns false when attribute does not exist" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.has_attribute?('nonexistent')).to be false
+    end
+
+    it "returns false for non-element nodes" do
+      text_node = root.children.find { |n| n.is_a?(RXerces::XML::Text) }
+      expect(text_node.has_attribute?('anything')).to be false if text_node
+    end
+  end
+
   describe "#children" do
     it "returns an array of child nodes" do
       children = root.children
@@ -155,6 +189,94 @@ RSpec.describe RXerces::XML::Node do
       # This is edge case - all nodes in a parsed document have parents
       # but we test the safety of the method
       expect(root.parent).not_to be_nil
+    end
+  end
+
+  describe "#ancestors" do
+    it "returns an array of ancestor nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      age = person.children.find { |n| n.name == 'age' }
+      ancestors = age.ancestors
+
+      expect(ancestors).to be_an(Array)
+      expect(ancestors.length).to eq(2)
+      expect(ancestors[0].name).to eq('person')
+      expect(ancestors[1].name).to eq('root')
+    end
+
+    it "returns ancestors in order from immediate parent to root" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      city = person.children.find { |n| n.name == 'city' }
+      ancestors = city.ancestors
+
+      expect(ancestors.map(&:name)).to eq(['person', 'root'])
+    end
+
+    it "returns empty array for root element" do
+      ancestors = root.ancestors
+      expect(ancestors).to be_an(Array)
+      expect(ancestors).to be_empty
+    end
+
+    it "returns only one ancestor for direct children of root" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      ancestors = person.ancestors
+
+      expect(ancestors.length).to eq(1)
+      expect(ancestors[0].name).to eq('root')
+    end
+
+    it "does not include the document node in ancestors" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      ancestors = person.ancestors
+
+      expect(ancestors.any? { |a| a.name == '#document' }).to be false
+    end
+
+    context "with selector" do
+      # Check if Xalan support is compiled in (selectors require XPath which needs Xalan)
+      xalan_available = begin
+        test_xml = '<root><item id="1">A</item></root>'
+        test_doc = RXerces::XML::Document.parse(test_xml)
+        result = test_doc.xpath('//item[@id="1"]')
+        result.length == 1
+      rescue
+        false
+      end
+
+      before(:all) do
+        unless xalan_available
+          skip "Xalan-C not available - ancestor selectors require Xalan-C library"
+        end
+      end
+
+      it "filters ancestors by tag name selector" do
+        person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+        city = person.children.find { |n| n.name == 'city' }
+        ancestors = city.ancestors('person')
+
+        expect(ancestors.length).to eq(1)
+        expect(ancestors[0].name).to eq('person')
+      end
+
+      it "filters ancestors by CSS class selector" do
+        person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+        city = person.children.find { |n| n.name == 'city' }
+        person_ancestors = city.ancestors('person[name]')
+
+        expect(person_ancestors.length).to eq(1)
+        expect(person_ancestors[0].name).to eq('person')
+        expect(person_ancestors[0]['name']).to eq('Alice')
+      end
+
+      it "returns empty array when no ancestors match selector" do
+        person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+        city = person.children.find { |n| n.name == 'city' }
+        ancestors = city.ancestors('nonexistent')
+
+        expect(ancestors).to be_an(Array)
+        expect(ancestors).to be_empty
+      end
     end
   end
 
@@ -273,6 +395,103 @@ RSpec.describe RXerces::XML::Node do
       while current
         siblings.unshift(current) if current.is_a?(RXerces::XML::Element)
         current = current.previous_sibling
+      end
+
+      expect(siblings.length).to eq(2)
+      expect(siblings[0]['id']).to eq('1')
+      expect(siblings[1]['id']).to eq('2')
+    end
+  end
+
+  describe "#element_children" do
+    it "returns only element children, filtering out text nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      element_children = person.element_children
+
+      expect(element_children).to be_an(Array)
+      expect(element_children.all? { |n| n.is_a?(RXerces::XML::Element) }).to be true
+      expect(element_children.length).to eq(2) # age and city elements
+      expect(element_children.map(&:name)).to match_array(['age', 'city'])
+    end
+
+    it "returns empty array for elements with no element children" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      age = person.element_children.find { |n| n.name == 'age' }
+      expect(age.element_children).to be_empty
+    end
+
+    it "returns empty array for text nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      text_node = person.children.find { |n| n.is_a?(RXerces::XML::Text) }
+      expect(text_node.element_children).to be_empty if text_node
+    end
+  end
+
+  describe "#elements" do
+    it "is an alias for element_children" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.elements.map(&:name)).to eq(person.element_children.map(&:name))
+      expect(person.elements.length).to eq(2)
+    end
+  end
+
+  describe "#next_element" do
+    it "returns the next element sibling, skipping text nodes" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      first_person = people[0]
+      next_element = first_person.next_element
+
+      expect(next_element).to be_a(RXerces::XML::Element)
+      expect(next_element.name).to eq('person')
+      expect(next_element['id']).to eq('2')
+    end
+
+    it "returns nil when there is no next element" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      last_person = people.last
+      expect(last_person.next_element).to be_nil
+    end
+
+    it "can navigate through all element siblings" do
+      first_element = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      siblings = []
+      current = first_element
+
+      while current
+        siblings << current
+        current = current.next_element
+      end
+
+      expect(siblings.length).to eq(2)
+      expect(siblings[0]['id']).to eq('1')
+      expect(siblings[1]['id']).to eq('2')
+    end
+  end
+
+  describe "#previous_element" do
+    it "returns the previous element sibling, skipping text nodes" do
+      people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
+      second_person = people[1]
+      prev_element = second_person.previous_element
+
+      expect(prev_element).to be_a(RXerces::XML::Element)
+      expect(prev_element.name).to eq('person')
+      expect(prev_element['id']).to eq('1')
+    end
+
+    it "returns nil when there is no previous element" do
+      first_element = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(first_element.previous_element).to be_nil
+    end
+
+    it "can navigate backward through all element siblings" do
+      last_element = root.children.select { |n| n.is_a?(RXerces::XML::Element) }.last
+      siblings = []
+      current = last_element
+
+      while current
+        siblings.unshift(current)
+        current = current.previous_element
       end
 
       expect(siblings.length).to eq(2)
@@ -544,6 +763,46 @@ RSpec.describe RXerces::XML::Node do
     it "returns the first matching element" do
       result = root.at('.//city')
       expect(result.text).to eq('New York')
+    end
+  end
+
+  describe "#at_css" do
+    # Check if Xalan support is compiled in (CSS requires XPath which needs Xalan)
+    xalan_available = begin
+      test_xml = '<root><item id="1">A</item><item id="2">B</item></root>'
+      test_doc = RXerces::XML::Document.parse(test_xml)
+      result = test_doc.xpath('//item[@id="1"]')
+      result.length == 1
+    rescue
+      false
+    end
+
+    before(:all) do
+      unless xalan_available
+        skip "Xalan-C not available - CSS selectors require Xalan-C library"
+      end
+    end
+
+    it "is an alias for at (which uses CSS converted to XPath)" do
+      xml = '<root><item class="foo">First</item><item class="bar">Second</item></root>'
+      doc = RXerces::XML::Document.parse(xml)
+      result = doc.root.at_css('.foo')
+      expect(result).to be_a(RXerces::XML::Element)
+      expect(result.text).to eq('First')
+    end
+
+    it "returns the first matching element" do
+      xml = '<root><item>A</item><item>B</item></root>'
+      doc = RXerces::XML::Document.parse(xml)
+      result = doc.root.at_css('item')
+      expect(result.text).to eq('A')
+    end
+
+    it "returns nil when no match found" do
+      xml = '<root><item>A</item></root>'
+      doc = RXerces::XML::Document.parse(xml)
+      result = doc.root.at_css('nonexistent')
+      expect(result).to be_nil
     end
   end
 
