@@ -57,6 +57,41 @@ static VALUE node_css(VALUE self, VALUE selector);
 static VALUE node_xpath(VALUE self, VALUE path);
 static VALUE document_xpath(VALUE self, VALUE path);
 
+// Initialize Xerces (and Xalan if available) exactly once
+static void ensure_xerces_initialized() {
+    if (xerces_initialized) {
+        return;
+    }
+
+    try {
+        XMLPlatformUtils::Initialize();
+#ifdef HAVE_XALAN
+        XPathEvaluator::initialize();
+        xalan_initialized = true;
+#endif
+        xerces_initialized = true;
+    } catch (const XMLException& e) {
+        char* message = XMLString::transcode(e.getMessage());
+        std::string error_msg = std::string("Xerces initialization failed: ") + message;
+        XMLString::release(&message);
+        rb_raise(rb_eRuntimeError, "%s", error_msg.c_str());
+    }
+}
+
+// Cleanup function called at exit
+static void cleanup_xerces() {
+#ifdef HAVE_XALAN
+    if (xalan_initialized) {
+        XPathEvaluator::terminate();
+        xalan_initialized = false;
+    }
+#endif
+    if (xerces_initialized) {
+        XMLPlatformUtils::Terminate();
+        xerces_initialized = false;
+    }
+}
+
 // Helper class to manage XMLCh strings
 class XStr {
 public:
@@ -262,14 +297,7 @@ static VALUE wrap_node(DOMNode* node, VALUE doc_ref) {
 
 // RXerces::XML::Document.parse(string)
 static VALUE document_parse(VALUE klass, VALUE str) {
-    if (!xerces_initialized) {
-        try {
-            XMLPlatformUtils::Initialize();
-            xerces_initialized = true;
-        } catch (const XMLException& e) {
-            rb_raise(rb_eRuntimeError, "Xerces initialization failed");
-        }
-    }
+    ensure_xerces_initialized();
 
     Check_Type(str, T_STRING);
     const char* xml_str = StringValueCStr(str);
@@ -468,14 +496,9 @@ static VALUE document_create_element(VALUE self, VALUE name) {
 #ifdef HAVE_XALAN
 // Helper function to execute XPath using Xalan for full XPath 1.0 support
 static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_str, VALUE doc_ref) {
-    try {
-        // Initialize Xalan if needed
-        if (!xalan_initialized) {
-            XPathEvaluator::initialize();
-            XMLPlatformUtils::Initialize();
-            xalan_initialized = true;
-        }
+    ensure_xerces_initialized();
 
+    try {
         // Get the document
         DOMDocument* domDoc = context_node->getOwnerDocument();
         if (!domDoc && context_node->getNodeType() == DOMNode::DOCUMENT_NODE) {
@@ -1919,18 +1942,7 @@ static VALUE schema_from_document(int argc, VALUE* argv, VALUE klass) {
     VALUE schema_source;
     rb_scan_args(argc, argv, "1", &schema_source);
 
-    // Ensure Xerces is initialized
-    if (!xerces_initialized) {
-        try {
-            XMLPlatformUtils::Initialize();
-            xerces_initialized = true;
-        } catch (const XMLException& e) {
-            char* message = XMLString::transcode(e.getMessage());
-            VALUE rb_error = rb_str_new_cstr(message);
-            XMLString::release(&message);
-            rb_raise(rb_eRuntimeError, "Failed to initialize Xerces-C: %s", StringValueCStr(rb_error));
-        }
-    }
+    ensure_xerces_initialized();
 
     try {
         SchemaWrapper* wrapper = ALLOC(SchemaWrapper);
@@ -2182,4 +2194,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_singleton_method(rb_cSchema, "from_string", RUBY_METHOD_FUNC(schema_from_document), -1);
 
     rb_define_method(rb_cDocument, "validate", RUBY_METHOD_FUNC(document_validate), 1);
+
+    // Register cleanup handler
+    atexit(cleanup_xerces);
 }
