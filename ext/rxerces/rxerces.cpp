@@ -961,6 +961,33 @@ static VALUE node_parent(VALUE self) {
     return wrap_node(parent, doc_ref);
 }
 
+// node.ancestors - returns an array of all ancestor nodes up to the document
+static VALUE node_ancestors(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    VALUE ancestors = rb_ary_new();
+
+    if (!wrapper->node) {
+        return ancestors;
+    }
+
+    VALUE doc_ref = rb_iv_get(self, "@document");
+    DOMNode* current = wrapper->node->getParentNode();
+
+    // Walk up the tree, collecting all ancestors
+    while (current) {
+        // Stop at the document node (don't include it in ancestors)
+        if (current->getNodeType() == DOMNode::DOCUMENT_NODE) {
+            break;
+        }
+        rb_ary_push(ancestors, wrap_node(current, doc_ref));
+        current = current->getParentNode();
+    }
+
+    return ancestors;
+}
+
 // node.attributes - returns hash of all attributes (only for element nodes)
 static VALUE node_attributes(VALUE self) {
     NodeWrapper* wrapper;
@@ -2043,6 +2070,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "element_children", RUBY_METHOD_FUNC(node_element_children), 0);
     rb_define_alias(rb_cNode, "elements", "element_children");
     rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
+    rb_define_method(rb_cNode, "ancestors", RUBY_METHOD_FUNC(node_ancestors), 0);
     rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
     rb_define_method(rb_cNode, "next_sibling", RUBY_METHOD_FUNC(node_next_sibling), 0);
     rb_define_method(rb_cNode, "next_element", RUBY_METHOD_FUNC(node_next_element), 0);

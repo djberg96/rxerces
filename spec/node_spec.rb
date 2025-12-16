@@ -192,6 +192,48 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#ancestors" do
+    it "returns an array of ancestor nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      age = person.children.find { |n| n.name == 'age' }
+      ancestors = age.ancestors
+
+      expect(ancestors).to be_an(Array)
+      expect(ancestors.length).to eq(2)
+      expect(ancestors[0].name).to eq('person')
+      expect(ancestors[1].name).to eq('root')
+    end
+
+    it "returns ancestors in order from immediate parent to root" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      city = person.children.find { |n| n.name == 'city' }
+      ancestors = city.ancestors
+
+      expect(ancestors.map(&:name)).to eq(['person', 'root'])
+    end
+
+    it "returns empty array for root element" do
+      ancestors = root.ancestors
+      expect(ancestors).to be_an(Array)
+      expect(ancestors).to be_empty
+    end
+
+    it "returns only one ancestor for direct children of root" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      ancestors = person.ancestors
+
+      expect(ancestors.length).to eq(1)
+      expect(ancestors[0].name).to eq('root')
+    end
+
+    it "does not include the document node in ancestors" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      ancestors = person.ancestors
+
+      expect(ancestors.any? { |a| a.name == '#document' }).to be false
+    end
+  end
+
   describe "#attributes" do
     it "returns a hash of attributes" do
       person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
