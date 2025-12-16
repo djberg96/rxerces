@@ -4,6 +4,11 @@
 * Added a nicer inspect method for most classes.
 * Added an HTML alias for XML, mainly for compatibility with nokogiri,
   but keep in mind that this library parses HTML as XML.
+* Added the Node#ancestors method.
+* Added the Node#has_attribute method.
+* Added first, last, empty? and inner_html methods for Node.
+* Added elements, next_element and previous_element for Node.
+* Added the Document#at_css method.
 
 ## 0.4.0 - 15-Dec-2025
 * Now uses Xalan if installed for xpath 1.0 compliance.
