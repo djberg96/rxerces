@@ -232,6 +232,34 @@ RSpec.describe RXerces::XML::Node do
 
       expect(ancestors.any? { |a| a.name == '#document' }).to be false
     end
+
+    it "filters ancestors by tag name selector" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      city = person.children.find { |n| n.name == 'city' }
+      ancestors = city.ancestors('person')
+
+      expect(ancestors.length).to eq(1)
+      expect(ancestors[0].name).to eq('person')
+    end
+
+    it "filters ancestors by CSS class selector" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      city = person.children.find { |n| n.name == 'city' }
+      person_ancestors = city.ancestors('person[name]')
+
+      expect(person_ancestors.length).to eq(1)
+      expect(person_ancestors[0].name).to eq('person')
+      expect(person_ancestors[0]['name']).to eq('Alice')
+    end
+
+    it "returns empty array when no ancestors match selector" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      city = person.children.find { |n| n.name == 'city' }
+      ancestors = city.ancestors('nonexistent')
+
+      expect(ancestors).to be_an(Array)
+      expect(ancestors).to be_empty
+    end
   end
 
   describe "#attributes" do

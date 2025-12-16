@@ -54,6 +54,8 @@ static bool xalan_initialized = false;
 // Forward declarations
 static std::string css_to_xpath(const char* css);
 static VALUE node_css(VALUE self, VALUE selector);
+static VALUE node_xpath(VALUE self, VALUE path);
+static VALUE document_xpath(VALUE self, VALUE path);
 
 // Helper class to manage XMLCh strings
 class XStr {
@@ -653,6 +655,20 @@ static VALUE document_css(VALUE self, VALUE selector) {
     return document_xpath(self, rb_str_new2(xpath_str.c_str()));
 }
 
+// document.at_css(selector) - Returns first matching node
+static VALUE document_at_css(VALUE self, VALUE selector) {
+    VALUE nodeset = document_css(self, selector);
+
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
+
+    if (RARRAY_LEN(wrapper->nodes_array) == 0) {
+        return Qnil;
+    }
+
+    return rb_ary_entry(wrapper->nodes_array, 0);
+}
+
 // node.inspect - human-readable representation
 static VALUE node_inspect(VALUE self) {
     NodeWrapper* wrapper;
@@ -961,8 +977,11 @@ static VALUE node_parent(VALUE self) {
     return wrap_node(parent, doc_ref);
 }
 
-// node.ancestors - returns an array of all ancestor nodes up to the document
-static VALUE node_ancestors(VALUE self) {
+// node.ancestors(selector = nil) - returns an array of all ancestor nodes, optionally filtered by selector
+static VALUE node_ancestors(int argc, VALUE* argv, VALUE self) {
+    VALUE selector;
+    rb_scan_args(argc, argv, "01", &selector);
+
     NodeWrapper* wrapper;
     TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
 
@@ -983,6 +1002,48 @@ static VALUE node_ancestors(VALUE self) {
         }
         rb_ary_push(ancestors, wrap_node(current, doc_ref));
         current = current->getParentNode();
+    }
+
+    // If selector is provided, filter the ancestors
+    if (!NIL_P(selector)) {
+        Check_Type(selector, T_STRING);
+        const char* selector_str = StringValueCStr(selector);
+
+        // Convert CSS to XPath if needed (css_to_xpath adds // prefix)
+        std::string xpath_str = css_to_xpath(selector_str);
+
+        // Get all matching nodes from the document
+        VALUE all_matches = document_xpath(doc_ref, rb_str_new2(xpath_str.c_str()));
+
+        NodeSetWrapper* matches_wrapper;
+        TypedData_Get_Struct(all_matches, NodeSetWrapper, &nodeset_type, matches_wrapper);
+
+        VALUE filtered = rb_ary_new();
+        long ancestor_len = RARRAY_LEN(ancestors);
+        long matches_len = RARRAY_LEN(matches_wrapper->nodes_array);
+
+        // For each ancestor, check if it's in the matches
+        for (long i = 0; i < ancestor_len; i++) {
+            VALUE ancestor = rb_ary_entry(ancestors, i);
+
+            NodeWrapper* ancestor_wrapper;
+            TypedData_Get_Struct(ancestor, NodeWrapper, &node_type, ancestor_wrapper);
+
+            // Check if this ancestor node is in the matches
+            for (long j = 0; j < matches_len; j++) {
+                VALUE match = rb_ary_entry(matches_wrapper->nodes_array, j);
+                NodeWrapper* match_wrapper;
+                TypedData_Get_Struct(match, NodeWrapper, &node_type, match_wrapper);
+
+                // Compare the actual DOM nodes
+                if (ancestor_wrapper->node == match_wrapper->node) {
+                    rb_ary_push(filtered, ancestor);
+                    break;
+                }
+            }
+        }
+
+        return filtered;
     }
 
     return ancestors;
@@ -2047,6 +2108,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "inspect", RUBY_METHOD_FUNC(document_inspect), 0);
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
     rb_define_method(rb_cDocument, "css", RUBY_METHOD_FUNC(document_css), 1);
+    rb_define_method(rb_cDocument, "at_css", RUBY_METHOD_FUNC(document_at_css), 1);
     rb_define_method(rb_cDocument, "encoding", RUBY_METHOD_FUNC(document_encoding), 0);
     rb_define_method(rb_cDocument, "text", RUBY_METHOD_FUNC(document_text), 0);
     rb_define_alias(rb_cDocument, "content", "text");
@@ -2070,7 +2132,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "element_children", RUBY_METHOD_FUNC(node_element_children), 0);
     rb_define_alias(rb_cNode, "elements", "element_children");
     rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
-    rb_define_method(rb_cNode, "ancestors", RUBY_METHOD_FUNC(node_ancestors), 0);
+    rb_define_method(rb_cNode, "ancestors", RUBY_METHOD_FUNC(node_ancestors), -1);
     rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
     rb_define_method(rb_cNode, "next_sibling", RUBY_METHOD_FUNC(node_next_sibling), 0);
     rb_define_method(rb_cNode, "next_element", RUBY_METHOD_FUNC(node_next_element), 0);
