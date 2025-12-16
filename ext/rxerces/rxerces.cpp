@@ -204,10 +204,24 @@ static void node_free(void* ptr) {
     }
 }
 
+static void node_mark(void* ptr) {
+    NodeWrapper* wrapper = (NodeWrapper*)ptr;
+    if (wrapper) {
+        rb_gc_mark(wrapper->doc_ref);
+    }
+}
+
 static void nodeset_free(void* ptr) {
     NodeSetWrapper* wrapper = (NodeSetWrapper*)ptr;
     if (wrapper) {
         xfree(wrapper);
+    }
+}
+
+static void nodeset_mark(void* ptr) {
+    NodeSetWrapper* wrapper = (NodeSetWrapper*)ptr;
+    if (wrapper) {
+        rb_gc_mark(wrapper->nodes_array);
     }
 }
 
@@ -246,14 +260,14 @@ static const rb_data_type_t document_type = {
 
 static const rb_data_type_t node_type = {
     "RXerces::XML::Node",
-    {0, node_free, node_size},
+    {node_mark, node_free, node_size},
     0, 0,
     RUBY_TYPED_FREE_IMMEDIATELY
 };
 
 static const rb_data_type_t nodeset_type = {
     "RXerces::XML::NodeSet",
-    {0, nodeset_free, nodeset_size},
+    {nodeset_mark, nodeset_free, nodeset_size},
     0, 0,
     RUBY_TYPED_FREE_IMMEDIATELY
 };
@@ -288,9 +302,6 @@ static VALUE wrap_node(DOMNode* node, VALUE doc_ref) {
             rb_node = TypedData_Wrap_Struct(rb_cNode, &node_type, wrapper);
             break;
     }
-
-    // Keep reference to document to prevent GC
-    rb_iv_set(rb_node, "@document", doc_ref);
 
     return rb_node;
 }
@@ -945,12 +956,13 @@ static VALUE node_children(VALUE self) {
     NodeWrapper* wrapper;
     TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
 
-    VALUE doc_ref = rb_iv_get(self, "@document");
     VALUE children = rb_ary_new();
 
     if (!wrapper->node) {
         return children;
     }
+
+    VALUE doc_ref = wrapper->doc_ref;
 
     DOMNodeList* child_nodes = wrapper->node->getChildNodes();
     XMLSize_t count = child_nodes->getLength();
@@ -968,13 +980,13 @@ static VALUE node_element_children(VALUE self) {
     NodeWrapper* wrapper;
     TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
 
-    VALUE doc_ref = rb_iv_get(self, "@document");
     VALUE children = rb_ary_new();
 
     if (!wrapper->node) {
         return children;
     }
 
+    VALUE doc_ref = wrapper->doc_ref;
     DOMNodeList* child_nodes = wrapper->node->getChildNodes();
     XMLSize_t count = child_nodes->getLength();
 
@@ -1002,7 +1014,7 @@ static VALUE node_parent(VALUE self) {
         return Qnil;
     }
 
-    VALUE doc_ref = rb_iv_get(self, "@document");
+    VALUE doc_ref = wrapper->doc_ref;
     return wrap_node(parent, doc_ref);
 }
 
@@ -1020,7 +1032,7 @@ static VALUE node_ancestors(int argc, VALUE* argv, VALUE self) {
         return ancestors;
     }
 
-    VALUE doc_ref = rb_iv_get(self, "@document");
+    VALUE doc_ref = wrapper->doc_ref;
     DOMNode* current = wrapper->node->getParentNode();
 
     // Walk up the tree, collecting all ancestors
@@ -1129,7 +1141,7 @@ static VALUE node_next_sibling(VALUE self) {
         return Qnil;
     }
 
-    VALUE doc_ref = rb_iv_get(self, "@document");
+    VALUE doc_ref = wrapper->doc_ref;
     return wrap_node(next, doc_ref);
 }
 
@@ -1147,7 +1159,7 @@ static VALUE node_previous_sibling(VALUE self) {
         return Qnil;
     }
 
-    VALUE doc_ref = rb_iv_get(self, "@document");
+    VALUE doc_ref = wrapper->doc_ref;
     return wrap_node(prev, doc_ref);
 }
 
@@ -1160,7 +1172,7 @@ static VALUE node_next_element(VALUE self) {
         return Qnil;
     }
 
-    VALUE doc_ref = rb_iv_get(self, "@document");
+    VALUE doc_ref = wrapper->doc_ref;
     DOMNode* next = wrapper->node->getNextSibling();
 
     // Skip non-element nodes
@@ -1184,7 +1196,7 @@ static VALUE node_previous_element(VALUE self) {
         return Qnil;
     }
 
-    VALUE doc_ref = rb_iv_get(self, "@document");
+    VALUE doc_ref = wrapper->doc_ref;
     DOMNode* prev = wrapper->node->getPreviousSibling();
 
     // Skip non-element nodes
@@ -1451,7 +1463,7 @@ static VALUE node_xpath(VALUE self, VALUE path) {
 
     Check_Type(path, T_STRING);
     const char* xpath_str = StringValueCStr(path);
-    VALUE doc_ref = rb_iv_get(self, "@document");
+    VALUE doc_ref = node_wrapper->doc_ref;
 
 #ifdef HAVE_XALAN
     // Use Xalan for full XPath 1.0 support
