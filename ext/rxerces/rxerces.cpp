@@ -138,6 +138,7 @@ private:
 typedef struct {
     DOMDocument* doc;
     XercesDOMParser* parser;
+    std::vector<std::string>* parse_errors;
 } DocumentWrapper;
 
 // Wrapper structure for DOMNode
@@ -163,24 +164,88 @@ public:
 
     void warning(const SAXParseException& e) {
         char* msg = XMLString::transcode(e.getMessage());
-        errors.push_back(std::string("Warning: ") + msg);
+        char buffer[512];
+        snprintf(buffer, sizeof(buffer), "Warning at line %lu, column %lu: %s",
+                 (unsigned long)e.getLineNumber(),
+                 (unsigned long)e.getColumnNumber(),
+                 msg);
+        errors.push_back(buffer);
         XMLString::release(&msg);
     }
 
     void error(const SAXParseException& e) {
         char* msg = XMLString::transcode(e.getMessage());
-        errors.push_back(std::string("Error: ") + msg);
+        char buffer[512];
+        snprintf(buffer, sizeof(buffer), "Error at line %lu, column %lu: %s",
+                 (unsigned long)e.getLineNumber(),
+                 (unsigned long)e.getColumnNumber(),
+                 msg);
+        errors.push_back(buffer);
         XMLString::release(&msg);
     }
 
     void fatalError(const SAXParseException& e) {
         char* msg = XMLString::transcode(e.getMessage());
-        errors.push_back(std::string("Fatal: ") + msg);
+        char buffer[512];
+        snprintf(buffer, sizeof(buffer), "Fatal error at line %lu, column %lu: %s",
+                 (unsigned long)e.getLineNumber(),
+                 (unsigned long)e.getColumnNumber(),
+                 msg);
+        errors.push_back(buffer);
         XMLString::release(&msg);
     }
 
     void resetErrors() {
         errors.clear();
+    }
+};
+
+// Error handler for parsing - stores errors but doesn't throw
+class ParseErrorHandler : public ErrorHandler {
+public:
+    std::vector<std::string>* errors;
+    bool has_fatal;
+
+    ParseErrorHandler(std::vector<std::string>* error_vec)
+        : errors(error_vec), has_fatal(false) {}
+
+    void warning(const SAXParseException& e) {
+        char* msg = XMLString::transcode(e.getMessage());
+        char buffer[512];
+        snprintf(buffer, sizeof(buffer), "Warning at line %lu, column %lu: %s",
+                 (unsigned long)e.getLineNumber(),
+                 (unsigned long)e.getColumnNumber(),
+                 msg);
+        errors->push_back(buffer);
+        XMLString::release(&msg);
+    }
+
+    void error(const SAXParseException& e) {
+        char* msg = XMLString::transcode(e.getMessage());
+        char buffer[512];
+        snprintf(buffer, sizeof(buffer), "Error at line %lu, column %lu: %s",
+                 (unsigned long)e.getLineNumber(),
+                 (unsigned long)e.getColumnNumber(),
+                 msg);
+        errors->push_back(buffer);
+        XMLString::release(&msg);
+    }
+
+    void fatalError(const SAXParseException& e) {
+        has_fatal = true;
+        char* msg = XMLString::transcode(e.getMessage());
+        char buffer[512];
+        snprintf(buffer, sizeof(buffer), "Fatal error at line %lu, column %lu: %s",
+                 (unsigned long)e.getLineNumber(),
+                 (unsigned long)e.getColumnNumber(),
+                 msg);
+        errors->push_back(buffer);
+        XMLString::release(&msg);
+    }
+
+    void resetErrors() {
+        errors->clear();
+        has_fatal = false;
     }
 };
 
@@ -190,6 +255,9 @@ static void document_free(void* ptr) {
     if (wrapper) {
         if (wrapper->parser) {
             delete wrapper->parser;
+        }
+        if (wrapper->parse_errors) {
+            delete wrapper->parse_errors;
         }
         // Document is owned by parser, so don't delete it separately
         xfree(wrapper);
@@ -318,6 +386,11 @@ static VALUE document_parse(VALUE klass, VALUE str) {
     parser->setDoNamespaces(true);
     parser->setDoSchema(false);
 
+    // Set up error handler to capture parse errors
+    std::vector<std::string>* parse_errors = new std::vector<std::string>();
+    ParseErrorHandler error_handler(parse_errors);
+    parser->setErrorHandler(&error_handler);
+
     try {
         MemBufInputSource input((const XMLByte*)xml_str, strlen(xml_str), "memory");
         parser->parse(input);
@@ -327,23 +400,54 @@ static VALUE document_parse(VALUE klass, VALUE str) {
         DocumentWrapper* wrapper = ALLOC(DocumentWrapper);
         wrapper->doc = doc;
         wrapper->parser = parser;
+        wrapper->parse_errors = parse_errors;
 
         VALUE rb_doc = TypedData_Wrap_Struct(rb_cDocument, &document_type, wrapper);
+
+        // If there were fatal errors, raise an exception with details
+        if (error_handler.has_fatal && !parse_errors->empty()) {
+            std::string all_errors;
+            for (const auto& err : *parse_errors) {
+                if (!all_errors.empty()) all_errors += "\n";
+                all_errors += err;
+            }
+            rb_raise(rb_eRuntimeError, "XML parsing failed:\n%s", all_errors.c_str());
+        }
+
         return rb_doc;
     } catch (const XMLException& e) {
         CharStr message(e.getMessage());
+        delete parse_errors;
         delete parser;
         rb_raise(rb_eRuntimeError, "XML parsing error: %s", message.localForm());
     } catch (const DOMException& e) {
         CharStr message(e.getMessage());
+        delete parse_errors;
         delete parser;
         rb_raise(rb_eRuntimeError, "DOM error: %s", message.localForm());
     } catch (...) {
+        delete parse_errors;
         delete parser;
         rb_raise(rb_eRuntimeError, "Unknown XML parsing error");
     }
 
     return Qnil;
+}
+
+// document.errors - returns array of parse errors (warnings and errors)
+static VALUE document_errors(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    VALUE errors_array = rb_ary_new();
+
+    if (wrapper->parse_errors) {
+        for (const auto& error : *wrapper->parse_errors) {
+            rb_ary_push(errors_array, rb_str_new2(error.c_str()));
+        }
+    }
+
+    return errors_array;
 }
 
 // document.root
@@ -2135,6 +2239,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_undef_alloc_func(rb_cDocument);
     rb_define_singleton_method(rb_cDocument, "parse", RUBY_METHOD_FUNC(document_parse), 1);
     rb_define_method(rb_cDocument, "root", RUBY_METHOD_FUNC(document_root), 0);
+    rb_define_method(rb_cDocument, "errors", RUBY_METHOD_FUNC(document_errors), 0);
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
     rb_define_alias(rb_cDocument, "to_xml", "to_s");
     rb_define_method(rb_cDocument, "inspect", RUBY_METHOD_FUNC(document_inspect), 0);
