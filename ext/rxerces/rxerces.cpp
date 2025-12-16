@@ -1330,6 +1330,7 @@ static VALUE node_add_child(VALUE self, VALUE child) {
     }
 
     DOMNode* child_node = NULL;
+    bool needs_import = false;
 
     // Check if child is a string or a node
     if (TYPE(child) == T_STRING) {
@@ -1344,6 +1345,13 @@ static VALUE node_add_child(VALUE self, VALUE child) {
         if (rb_obj_is_kind_of(child, rb_cNode)) {
             TypedData_Get_Struct(child, NodeWrapper, &node_type, child_wrapper);
             child_node = child_wrapper->node;
+
+            // Check if child belongs to a different document
+            DOMDocument* child_doc = child_node->getOwnerDocument();
+            if (child_doc && child_doc != doc) {
+                rb_raise(rb_eRuntimeError,
+                    "Node belongs to a different document. Use importNode to adopt nodes from other documents.");
+            }
         } else {
             rb_raise(rb_eTypeError, "Argument must be a String or Node");
         }
@@ -1354,12 +1362,24 @@ static VALUE node_add_child(VALUE self, VALUE child) {
     }
 
     try {
+        // appendChild will automatically detach the node from its current parent if it has one
         wrapper->node->appendChild(child_node);
     } catch (const DOMException& e) {
         char* message = XMLString::transcode(e.getMessage());
         VALUE rb_error = rb_str_new_cstr(message);
         XMLString::release(&message);
-        rb_raise(rb_eRuntimeError, "Failed to add child: %s", StringValueCStr(rb_error));
+
+        // Provide more context for common errors
+        unsigned short code = e.code;
+        if (code == DOMException::WRONG_DOCUMENT_ERR) {
+            rb_raise(rb_eRuntimeError, "Node belongs to a different document: %s", StringValueCStr(rb_error));
+        } else if (code == DOMException::HIERARCHY_REQUEST_ERR) {
+            rb_raise(rb_eRuntimeError, "Invalid hierarchy: cannot add this node as a child: %s", StringValueCStr(rb_error));
+        } else if (code == DOMException::NO_MODIFICATION_ALLOWED_ERR) {
+            rb_raise(rb_eRuntimeError, "Node is read-only: %s", StringValueCStr(rb_error));
+        } else {
+            rb_raise(rb_eRuntimeError, "Failed to add child: %s", StringValueCStr(rb_error));
+        }
     }
 
     return child;
