@@ -233,32 +233,50 @@ RSpec.describe RXerces::XML::Node do
       expect(ancestors.any? { |a| a.name == '#document' }).to be false
     end
 
-    it "filters ancestors by tag name selector" do
-      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
-      city = person.children.find { |n| n.name == 'city' }
-      ancestors = city.ancestors('person')
+    context "with selector" do
+      # Check if Xalan support is compiled in (selectors require XPath which needs Xalan)
+      xalan_available = begin
+        test_xml = '<root><item id="1">A</item></root>'
+        test_doc = RXerces::XML::Document.parse(test_xml)
+        result = test_doc.xpath('//item[@id="1"]')
+        result.length == 1
+      rescue
+        false
+      end
 
-      expect(ancestors.length).to eq(1)
-      expect(ancestors[0].name).to eq('person')
-    end
+      before(:all) do
+        unless xalan_available
+          skip "Xalan-C not available - ancestor selectors require Xalan-C library"
+        end
+      end
 
-    it "filters ancestors by CSS class selector" do
-      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
-      city = person.children.find { |n| n.name == 'city' }
-      person_ancestors = city.ancestors('person[name]')
+      it "filters ancestors by tag name selector" do
+        person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+        city = person.children.find { |n| n.name == 'city' }
+        ancestors = city.ancestors('person')
 
-      expect(person_ancestors.length).to eq(1)
-      expect(person_ancestors[0].name).to eq('person')
-      expect(person_ancestors[0]['name']).to eq('Alice')
-    end
+        expect(ancestors.length).to eq(1)
+        expect(ancestors[0].name).to eq('person')
+      end
 
-    it "returns empty array when no ancestors match selector" do
-      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
-      city = person.children.find { |n| n.name == 'city' }
-      ancestors = city.ancestors('nonexistent')
+      it "filters ancestors by CSS class selector" do
+        person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+        city = person.children.find { |n| n.name == 'city' }
+        person_ancestors = city.ancestors('person[name]')
 
-      expect(ancestors).to be_an(Array)
-      expect(ancestors).to be_empty
+        expect(person_ancestors.length).to eq(1)
+        expect(person_ancestors[0].name).to eq('person')
+        expect(person_ancestors[0]['name']).to eq('Alice')
+      end
+
+      it "returns empty array when no ancestors match selector" do
+        person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+        city = person.children.find { |n| n.name == 'city' }
+        ancestors = city.ancestors('nonexistent')
+
+        expect(ancestors).to be_an(Array)
+        expect(ancestors).to be_empty
+      end
     end
   end
 
