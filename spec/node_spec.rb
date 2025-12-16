@@ -552,6 +552,63 @@ RSpec.describe RXerces::XML::Node do
       xml_output = simple_doc.to_s
       expect(xml_output).to include("Content")
     end
+
+    context "with nodes from different documents" do
+      it "raises error when adding node from different document" do
+        doc1 = RXerces::XML::Document.parse('<root><item>one</item></root>')
+        doc2 = RXerces::XML::Document.parse('<other><item>two</item></other>')
+
+        root1 = doc1.root
+        item2 = doc2.root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+
+        expect {
+          root1.add_child(item2)
+        }.to raise_error(RuntimeError, /belongs to a different document/)
+      end
+
+      it "provides helpful error message mentioning importNode" do
+        doc1 = RXerces::XML::Document.parse('<root></root>')
+        doc2 = RXerces::XML::Document.parse('<other><child/></other>')
+
+        expect {
+          doc1.root.add_child(doc2.root.children.first)
+        }.to raise_error(RuntimeError, /importNode/)
+      end
+    end
+
+    context "when child already has a parent" do
+      it "moves node from one parent to another (detaches automatically)" do
+        doc = RXerces::XML::Document.parse('<root><parent1><child>text</child></parent1><parent2/></root>')
+        parent1 = doc.xpath('//parent1').first
+        parent2 = doc.xpath('//parent2').first
+        child = doc.xpath('//child').first
+
+        # Verify initial state
+        expect(parent1.children.select { |n| n.is_a?(RXerces::XML::Element) }.length).to eq(1)
+        expect(parent2.children.select { |n| n.is_a?(RXerces::XML::Element) }.length).to eq(0)
+
+        # Move child from parent1 to parent2
+        parent2.add_child(child)
+
+        # Child should now be under parent2, not parent1
+        expect(parent1.children.select { |n| n.is_a?(RXerces::XML::Element) }.length).to eq(0)
+        expect(parent2.children.select { |n| n.is_a?(RXerces::XML::Element) }.length).to eq(1)
+        expect(doc.xpath('//parent2/child').length).to eq(1)
+        expect(doc.xpath('//parent1/child').length).to eq(0)
+      end
+
+      it "preserves node content when moving" do
+        doc = RXerces::XML::Document.parse('<root><a><item>content</item></a><b/></root>')
+        a = doc.xpath('//a').first
+        b = doc.xpath('//b').first
+        item = doc.xpath('//item').first
+
+        b.add_child(item)
+
+        expect(item.text).to eq('content')
+        expect(doc.xpath('//b/item').first.text).to eq('content')
+      end
+    end
   end
 
   describe "#remove" do
