@@ -176,4 +176,62 @@ RSpec.describe RXerces::XML::Document do
       expect(result.first.text).to eq('New content')
     end
   end
+
+  describe "#errors" do
+    it "returns empty array for valid XML" do
+      doc = RXerces::XML::Document.parse(simple_xml)
+      expect(doc.errors).to eq([])
+    end
+
+    it "returns empty array for complex valid XML" do
+      doc = RXerces::XML::Document.parse(complex_xml)
+      expect(doc.errors).to eq([])
+    end
+
+    context "with malformed XML" do
+      it "raises error and provides line/column information for unclosed tags" do
+        expect {
+          RXerces::XML::Document.parse('<root><item>test</root>')
+        }.to raise_error(RuntimeError, /Fatal error at line \d+, column \d+/)
+      end
+
+      it "raises error with detailed message for multiple errors" do
+        expect {
+          RXerces::XML::Document.parse('<root><item>test</item><unclosed>')
+        }.to raise_error(RuntimeError, /Fatal error at line/)
+      end
+
+      it "raises error for completely invalid XML" do
+        expect {
+          RXerces::XML::Document.parse('not xml at all')
+        }.to raise_error(RuntimeError, /Fatal error at line/)
+      end
+
+      it "raises error for mismatched tags" do
+        expect {
+          RXerces::XML::Document.parse('<root><item>test</other></root>')
+        }.to raise_error(RuntimeError, /Fatal error at line/)
+      end
+    end
+
+    context "error message format" do
+      it "includes line number in error message" do
+        expect {
+          RXerces::XML::Document.parse('<root><bad>')
+        }.to raise_error(RuntimeError, /line \d+/)
+      end
+
+      it "includes column number in error message" do
+        expect {
+          RXerces::XML::Document.parse('<root><bad>')
+        }.to raise_error(RuntimeError, /column \d+/)
+      end
+
+      it "describes the error type" do
+        expect {
+          RXerces::XML::Document.parse('<root><item>test</root>')
+        }.to raise_error(RuntimeError, /expected end of tag/)
+      end
+    end
+  end
 end
