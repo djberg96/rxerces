@@ -53,6 +53,7 @@ static bool xalan_initialized = false;
 
 // Forward declarations
 static std::string css_to_xpath(const char* css);
+static VALUE node_css(VALUE self, VALUE selector);
 
 // Helper class to manage XMLCh strings
 class XStr {
@@ -1331,6 +1332,19 @@ static VALUE node_at_xpath(VALUE self, VALUE path) {
     return rb_ary_entry(wrapper->nodes_array, 0);
 }
 
+// node.at_css(selector) - returns first matching node or nil
+static VALUE node_at_css(VALUE self, VALUE selector) {
+    VALUE nodeset = node_css(self, selector);
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
+
+    if (RARRAY_LEN(wrapper->nodes_array) == 0) {
+        return Qnil;
+    }
+
+    return rb_ary_entry(wrapper->nodes_array, 0);
+}
+
 // Helper function to convert basic CSS selectors to XPath
 // Supports common patterns like: tag, .class, #id, tag.class, tag#id, [attr], [attr=value]
 static std::string css_to_xpath(const char* css) {
@@ -1538,6 +1552,56 @@ static VALUE nodeset_to_a(VALUE self) {
     TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
 
     return rb_ary_dup(wrapper->nodes_array);
+}
+
+// nodeset.first - returns first node or nil
+static VALUE nodeset_first(VALUE self) {
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
+
+    if (RARRAY_LEN(wrapper->nodes_array) == 0) {
+        return Qnil;
+    }
+
+    return rb_ary_entry(wrapper->nodes_array, 0);
+}
+
+// nodeset.last - returns last node or nil
+static VALUE nodeset_last(VALUE self) {
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
+
+    long len = RARRAY_LEN(wrapper->nodes_array);
+    if (len == 0) {
+        return Qnil;
+    }
+
+    return rb_ary_entry(wrapper->nodes_array, len - 1);
+}
+
+// nodeset.empty? - returns true if nodeset is empty
+static VALUE nodeset_empty_p(VALUE self) {
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
+
+    return RARRAY_LEN(wrapper->nodes_array) == 0 ? Qtrue : Qfalse;
+}
+
+// nodeset.inner_html - returns concatenated inner_html of all nodes
+static VALUE nodeset_inner_html(VALUE self) {
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
+
+    std::string result;
+    long len = RARRAY_LEN(wrapper->nodes_array);
+
+    for (long i = 0; i < len; i++) {
+        VALUE node = rb_ary_entry(wrapper->nodes_array, i);
+        VALUE inner_html = rb_funcall(node, rb_intern("inner_html"), 0);
+        result += StringValueCStr(inner_html);
+    }
+
+    return rb_str_new_cstr(result.c_str());
 }
 
 // nodeset.text - returns concatenated text content of all nodes
@@ -1919,7 +1983,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "at_xpath", RUBY_METHOD_FUNC(node_at_xpath), 1);
     rb_define_alias(rb_cNode, "at", "at_xpath");
     rb_define_method(rb_cNode, "css", RUBY_METHOD_FUNC(node_css), 1);
-    rb_define_alias(rb_cNode, "at_css", "at");
+    rb_define_method(rb_cNode, "at_css", RUBY_METHOD_FUNC(node_at_css), 1);
     rb_define_alias(rb_cNode, "get_attribute", "[]");
     rb_define_alias(rb_cNode, "attribute", "[]");
 
@@ -1934,9 +1998,13 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNodeSet, "length", RUBY_METHOD_FUNC(nodeset_length), 0);
     rb_define_alias(rb_cNodeSet, "size", "length");
     rb_define_method(rb_cNodeSet, "[]", RUBY_METHOD_FUNC(nodeset_at), 1);
+    rb_define_method(rb_cNodeSet, "first", RUBY_METHOD_FUNC(nodeset_first), 0);
+    rb_define_method(rb_cNodeSet, "last", RUBY_METHOD_FUNC(nodeset_last), 0);
+    rb_define_method(rb_cNodeSet, "empty?", RUBY_METHOD_FUNC(nodeset_empty_p), 0);
     rb_define_method(rb_cNodeSet, "each", RUBY_METHOD_FUNC(nodeset_each), 0);
     rb_define_method(rb_cNodeSet, "to_a", RUBY_METHOD_FUNC(nodeset_to_a), 0);
     rb_define_method(rb_cNodeSet, "text", RUBY_METHOD_FUNC(nodeset_text), 0);
+    rb_define_method(rb_cNodeSet, "inner_html", RUBY_METHOD_FUNC(nodeset_inner_html), 0);
     rb_define_method(rb_cNodeSet, "inspect", RUBY_METHOD_FUNC(nodeset_inspect), 0);
     rb_define_alias(rb_cNodeSet, "to_s", "inspect");
     rb_include_module(rb_cNodeSet, rb_mEnumerable);

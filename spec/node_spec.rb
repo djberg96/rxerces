@@ -110,6 +110,40 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#get_attribute" do
+    it "is an alias for []" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.get_attribute('id')).to eq('1')
+      expect(person.get_attribute('name')).to eq('Alice')
+    end
+  end
+
+  describe "#attribute" do
+    it "is an alias for []" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.attribute('id')).to eq('1')
+      expect(person.attribute('name')).to eq('Alice')
+    end
+  end
+
+  describe "#has_attribute?" do
+    it "returns true when attribute exists" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.has_attribute?('id')).to be true
+      expect(person.has_attribute?('name')).to be true
+    end
+
+    it "returns false when attribute does not exist" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      expect(person.has_attribute?('nonexistent')).to be false
+    end
+
+    it "returns false for non-element nodes" do
+      text_node = root.children.find { |n| n.is_a?(RXerces::XML::Text) }
+      expect(text_node.has_attribute?('anything')).to be false if text_node
+    end
+  end
+
   describe "#children" do
     it "returns an array of child nodes" do
       children = root.children
@@ -544,6 +578,46 @@ RSpec.describe RXerces::XML::Node do
     it "returns the first matching element" do
       result = root.at('.//city')
       expect(result.text).to eq('New York')
+    end
+  end
+
+  describe "#at_css" do
+    # Check if Xalan support is compiled in (CSS requires XPath which needs Xalan)
+    xalan_available = begin
+      test_xml = '<root><item id="1">A</item><item id="2">B</item></root>'
+      test_doc = RXerces::XML::Document.parse(test_xml)
+      result = test_doc.xpath('//item[@id="1"]')
+      result.length == 1
+    rescue
+      false
+    end
+
+    before(:all) do
+      unless xalan_available
+        skip "Xalan-C not available - CSS selectors require Xalan-C library"
+      end
+    end
+
+    it "is an alias for at (which uses CSS converted to XPath)" do
+      xml = '<root><item class="foo">First</item><item class="bar">Second</item></root>'
+      doc = RXerces::XML::Document.parse(xml)
+      result = doc.root.at_css('.foo')
+      expect(result).to be_a(RXerces::XML::Element)
+      expect(result.text).to eq('First')
+    end
+
+    it "returns the first matching element" do
+      xml = '<root><item>A</item><item>B</item></root>'
+      doc = RXerces::XML::Document.parse(xml)
+      result = doc.root.at_css('item')
+      expect(result.text).to eq('A')
+    end
+
+    it "returns nil when no match found" do
+      xml = '<root><item>A</item></root>'
+      doc = RXerces::XML::Document.parse(xml)
+      result = doc.root.at_css('nonexistent')
+      expect(result).to be_nil
     end
   end
 

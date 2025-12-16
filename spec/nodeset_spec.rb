@@ -86,6 +86,65 @@ RSpec.describe RXerces::XML::NodeSet do
     end
   end
 
+  describe "#first" do
+    it "returns the first node" do
+      first = nodeset.first
+      expect(first).to be_a(RXerces::XML::Element)
+      expect(first.text.strip).to eq('First')
+    end
+
+    it "returns nil for empty nodeset" do
+      expect(empty_nodeset.first).to be_nil
+    end
+  end
+
+  describe "#last" do
+    it "returns the last node" do
+      last = nodeset.last
+      expect(last).to be_a(RXerces::XML::Element)
+      expect(last.text.strip).to eq('Third')
+    end
+
+    it "returns nil for empty nodeset" do
+      expect(empty_nodeset.last).to be_nil
+    end
+  end
+
+  describe "#empty?" do
+    it "returns false for non-empty nodeset" do
+      expect(nodeset.empty?).to be false
+    end
+
+    it "returns true for empty nodeset" do
+      expect(empty_nodeset.empty?).to be true
+    end
+  end
+
+  describe "#inner_html" do
+    it "returns concatenated inner_html of all nodes" do
+      result = nodeset.inner_html
+      expect(result).to be_a(String)
+      expect(result).to eq('FirstSecondThird')
+    end
+
+    it "returns empty string for empty nodeset" do
+      expect(empty_nodeset.inner_html).to eq('')
+    end
+
+    it "includes child elements in inner_html" do
+      xml_with_children = <<-XML
+        <root>
+          <div><span>A</span></div>
+          <div><span>B</span></div>
+        </root>
+      XML
+      doc = RXerces::XML::Document.parse(xml_with_children)
+      divs = doc.xpath('//div')
+      expect(divs.inner_html).to include('<span>A</span>')
+      expect(divs.inner_html).to include('<span>B</span>')
+    end
+  end
+
   it "includes Enumerable" do
     expect(RXerces::XML::NodeSet.ancestors).to include(Enumerable)
   end
