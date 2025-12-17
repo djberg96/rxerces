@@ -1,3 +1,10 @@
+## 0.6.0 - 17-Dec-2025
+* Some internal refactoring, better initialization, some better string
+  handling, that sort of stuff.
+* Added the Document#errors method with more detailed information. Also
+  helps with Nokogiri compatibility.
+* Added some benchmarks (they're not great compared to others, oh well).
+
 ## 0.5.0 - 16-Dec-2025
 * Implemented a real css method. Requires Xalan to be installed.
 * Added text/content methods for most classes.
