@@ -20,6 +20,7 @@ ruby benchmarks/xpath_benchmark.rb
 ruby benchmarks/css_benchmark.rb
 ruby benchmarks/traversal_benchmark.rb
 ruby benchmarks/serialization_benchmark.rb
+ruby benchmarks/micro/run_all.rb
 ```
 
 Or run a specific benchmark:
@@ -56,6 +57,22 @@ Tests DOM traversal operations:
 - `.ancestors` access
 - `.next_sibling` access
 - `.text` extraction
+
+### 6. Microbenchmarks (`benchmarks/micro/*`)
+Fine-grained method-level benchmarks to track improvements and identify hotspots:
+- `Node#children`, `Node#element_children`
+- `Node#parent`, `Node#ancestors`
+- `Node#next_sibling`, `Node#previous_sibling`
+- `Node#attributes`, `Node#[]`, `Node#[]=`
+- `Node#inner_html`, `Node#path`, `Node#blank?`
+- `Document#at_xpath`, `Document#xpath`, `Document#css`
+- `Document#to_s` serialization
+
+Run all microbenchmarks:
+
+```bash
+ruby benchmarks/micro/run_all.rb
+```
 
 ### 5. Serialization Benchmark (`serialization_benchmark.rb`)
 Tests document serialization (`to_s`/`to_xml`) with various document sizes.
