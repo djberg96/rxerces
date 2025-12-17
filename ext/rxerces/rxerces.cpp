@@ -12,6 +12,7 @@
 #include <xercesc/sax/SAXParseException.hpp>
 #include <sstream>
 #include <vector>
+#include <unordered_map>
 
 #ifdef HAVE_XALAN
 #include <xalanc/XPath/XPathEvaluator.hpp>
@@ -138,6 +139,7 @@ private:
 typedef struct {
     DOMDocument* doc;
     XercesDOMParser* parser;
+    std::unordered_map<DOMNode*, VALUE>* node_cache;
     std::vector<std::string>* parse_errors;
 } DocumentWrapper;
 
@@ -319,9 +321,19 @@ static size_t schema_size(const void* ptr) {
     return sizeof(SchemaWrapper);
 }
 
+static void document_mark(void* ptr) {
+    DocumentWrapper* wrapper = (DocumentWrapper*)ptr;
+    if (!wrapper) return;
+    if (wrapper->node_cache) {
+        for (const auto& kv : *wrapper->node_cache) {
+            rb_gc_mark(kv.second);
+        }
+    }
+}
+
 static const rb_data_type_t document_type = {
     "RXerces::XML::Document",
-    {0, document_free, document_size},
+    {document_mark, document_free, document_size},
     0, 0,
     RUBY_TYPED_FREE_IMMEDIATELY
 };
@@ -353,6 +365,16 @@ static VALUE wrap_node(DOMNode* node, VALUE doc_ref) {
         return Qnil;
     }
 
+    // Try document-scoped cache first
+    DocumentWrapper* doc_wrapper;
+    TypedData_Get_Struct(doc_ref, DocumentWrapper, &document_type, doc_wrapper);
+    if (doc_wrapper && doc_wrapper->node_cache) {
+        auto it = doc_wrapper->node_cache->find(node);
+        if (it != doc_wrapper->node_cache->end()) {
+            return it->second;
+        }
+    }
+
     NodeWrapper* wrapper = ALLOC(NodeWrapper);
     wrapper->node = node;
     wrapper->doc_ref = doc_ref;
@@ -369,6 +391,14 @@ static VALUE wrap_node(DOMNode* node, VALUE doc_ref) {
         default:
             rb_node = TypedData_Wrap_Struct(rb_cNode, &node_type, wrapper);
             break;
+    }
+
+    // Store in document cache
+    if (doc_wrapper) {
+        if (!doc_wrapper->node_cache) {
+            doc_wrapper->node_cache = new std::unordered_map<DOMNode*, VALUE>();
+        }
+        (*doc_wrapper->node_cache)[node] = rb_node;
     }
 
     return rb_node;
