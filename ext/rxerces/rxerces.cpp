@@ -608,6 +608,30 @@ static VALUE document_create_element(VALUE self, VALUE name) {
     return Qnil;
 }
 
+// document.element_children - returns only element children (no text nodes, comments, etc.)
+static VALUE document_element_children(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    VALUE children = rb_ary_new();
+
+    if (!wrapper->doc) {
+        return children;
+    }
+
+    DOMNodeList* child_nodes = wrapper->doc->getChildNodes();
+    XMLSize_t count = child_nodes->getLength();
+
+    for (XMLSize_t i = 0; i < count; i++) {
+        DOMNode* child = child_nodes->item(i);
+        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
+            rb_ary_push(children, wrap_node(child, self));
+        }
+    }
+
+    return children;
+}
+
 #ifdef HAVE_XALAN
 // Helper function to execute XPath using Xalan for full XPath 1.0 support
 static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_str, VALUE doc_ref) {
@@ -2270,6 +2294,8 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "text", RUBY_METHOD_FUNC(document_text), 0);
     rb_define_alias(rb_cDocument, "content", "text");
     rb_define_method(rb_cDocument, "create_element", RUBY_METHOD_FUNC(document_create_element), 1);
+    rb_define_method(rb_cDocument, "element_children", RUBY_METHOD_FUNC(document_element_children), 0);
+    rb_define_alias(rb_cDocument, "elements", "element_children");
 
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
     rb_undef_alloc_func(rb_cNode);
