@@ -608,6 +608,28 @@ static VALUE document_create_element(VALUE self, VALUE name) {
     return Qnil;
 }
 
+// document.children - returns all children (elements, text, comments, etc.)
+static VALUE document_children(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    VALUE children = rb_ary_new();
+
+    if (!wrapper->doc) {
+        return children;
+    }
+
+    DOMNodeList* child_nodes = wrapper->doc->getChildNodes();
+    XMLSize_t count = child_nodes->getLength();
+
+    for (XMLSize_t i = 0; i < count; i++) {
+        DOMNode* child = child_nodes->item(i);
+        rb_ary_push(children, wrap_node(child, self));
+    }
+
+    return children;
+}
+
 // document.element_children - returns only element children (no text nodes, comments, etc.)
 static VALUE document_element_children(VALUE self) {
     DocumentWrapper* wrapper;
@@ -630,6 +652,51 @@ static VALUE document_element_children(VALUE self) {
     }
 
     return children;
+}
+
+// document.first_element_child - returns first element child
+static VALUE document_first_element_child(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    if (!wrapper->doc) {
+        return Qnil;
+    }
+
+    DOMNodeList* child_nodes = wrapper->doc->getChildNodes();
+    XMLSize_t count = child_nodes->getLength();
+
+    for (XMLSize_t i = 0; i < count; i++) {
+        DOMNode* child = child_nodes->item(i);
+        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
+            return wrap_node(child, self);
+        }
+    }
+
+    return Qnil;
+}
+
+// document.last_element_child - returns last element child
+static VALUE document_last_element_child(VALUE self) {
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
+
+    if (!wrapper->doc) {
+        return Qnil;
+    }
+
+    DOMNodeList* child_nodes = wrapper->doc->getChildNodes();
+    XMLSize_t count = child_nodes->getLength();
+
+    // Search backwards for last element
+    for (XMLSize_t i = count; i > 0; i--) {
+        DOMNode* child = child_nodes->item(i - 1);
+        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
+            return wrap_node(child, self);
+        }
+    }
+
+    return Qnil;
 }
 
 #ifdef HAVE_XALAN
@@ -1126,6 +1193,65 @@ static VALUE node_element_children(VALUE self) {
     }
 
     return children;
+}
+
+// node.first_element_child - returns first element child
+static VALUE node_first_element_child(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    VALUE doc_ref = wrapper->doc_ref;
+    DOMNodeList* child_nodes = wrapper->node->getChildNodes();
+    XMLSize_t count = child_nodes->getLength();
+
+    for (XMLSize_t i = 0; i < count; i++) {
+        DOMNode* child = child_nodes->item(i);
+        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
+            return wrap_node(child, doc_ref);
+        }
+    }
+
+    return Qnil;
+}
+
+// node.last_element_child - returns last element child
+static VALUE node_last_element_child(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    VALUE doc_ref = wrapper->doc_ref;
+    DOMNodeList* child_nodes = wrapper->node->getChildNodes();
+    XMLSize_t count = child_nodes->getLength();
+
+    // Search backwards for last element
+    for (XMLSize_t i = count; i > 0; i--) {
+        DOMNode* child = child_nodes->item(i - 1);
+        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
+            return wrap_node(child, doc_ref);
+        }
+    }
+
+    return Qnil;
+}
+
+// node.document - returns the document that owns this node
+static VALUE node_document(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    if (!wrapper->node) {
+        return Qnil;
+    }
+
+    return wrapper->doc_ref;
 }
 
 // node.parent
@@ -2294,8 +2420,11 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cDocument, "text", RUBY_METHOD_FUNC(document_text), 0);
     rb_define_alias(rb_cDocument, "content", "text");
     rb_define_method(rb_cDocument, "create_element", RUBY_METHOD_FUNC(document_create_element), 1);
+    rb_define_method(rb_cDocument, "children", RUBY_METHOD_FUNC(document_children), 0);
     rb_define_method(rb_cDocument, "element_children", RUBY_METHOD_FUNC(document_element_children), 0);
     rb_define_alias(rb_cDocument, "elements", "element_children");
+    rb_define_method(rb_cDocument, "first_element_child", RUBY_METHOD_FUNC(document_first_element_child), 0);
+    rb_define_method(rb_cDocument, "last_element_child", RUBY_METHOD_FUNC(document_last_element_child), 0);
 
     rb_cNode = rb_define_class_under(rb_mXML, "Node", rb_cObject);
     rb_undef_alloc_func(rb_cNode);
@@ -2314,6 +2443,9 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "children", RUBY_METHOD_FUNC(node_children), 0);
     rb_define_method(rb_cNode, "element_children", RUBY_METHOD_FUNC(node_element_children), 0);
     rb_define_alias(rb_cNode, "elements", "element_children");
+    rb_define_method(rb_cNode, "first_element_child", RUBY_METHOD_FUNC(node_first_element_child), 0);
+    rb_define_method(rb_cNode, "last_element_child", RUBY_METHOD_FUNC(node_last_element_child), 0);
+    rb_define_method(rb_cNode, "document", RUBY_METHOD_FUNC(node_document), 0);
     rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
     rb_define_method(rb_cNode, "ancestors", RUBY_METHOD_FUNC(node_ancestors), -1);
     rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
