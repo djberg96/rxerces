@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name        = "rxerces"
-  spec.version     = "0.6.1"
+  spec.version     = "0.6.2"
   spec.author      = "Daniel J. Berger"
   spec.email       = "djberg96@gmail.com"
   spec.cert_chain  = ["certs/djberg96_pub.pem"]
