@@ -873,6 +873,19 @@ static VALUE document_xpath(VALUE self, VALUE path) {
 #endif
 }
 
+// document.at_xpath(path) - returns first matching node or nil
+static VALUE document_at_xpath(VALUE self, VALUE path) {
+    VALUE nodeset = document_xpath(self, path);
+    NodeSetWrapper* wrapper;
+    TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
+
+    if (RARRAY_LEN(wrapper->nodes_array) == 0) {
+        return Qnil;
+    }
+
+    return rb_ary_entry(wrapper->nodes_array, 0);
+}
+
 // document.css(selector) - Convert CSS to XPath and execute
 static VALUE document_css(VALUE self, VALUE selector) {
     Check_Type(selector, T_STRING);
@@ -2414,6 +2427,8 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_alias(rb_cDocument, "to_xml", "to_s");
     rb_define_method(rb_cDocument, "inspect", RUBY_METHOD_FUNC(document_inspect), 0);
     rb_define_method(rb_cDocument, "xpath", RUBY_METHOD_FUNC(document_xpath), 1);
+    rb_define_method(rb_cDocument, "at_xpath", RUBY_METHOD_FUNC(document_at_xpath), 1);
+    rb_define_alias(rb_cDocument, "at", "at_xpath");
     rb_define_method(rb_cDocument, "css", RUBY_METHOD_FUNC(document_css), 1);
     rb_define_method(rb_cDocument, "at_css", RUBY_METHOD_FUNC(document_at_css), 1);
     rb_define_method(rb_cDocument, "encoding", RUBY_METHOD_FUNC(document_encoding), 0);
