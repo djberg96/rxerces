@@ -4,7 +4,7 @@ require 'rxerces'
 
 RSpec.shared_examples RXerces do
   example 'version number is set to the expected value' do
-    expect(RXerces::VERSION).to eq('0.6.1')
+    expect(RXerces::VERSION).to eq('0.6.2')
     expect(RXerces::VERSION).to be_frozen
   end
 end

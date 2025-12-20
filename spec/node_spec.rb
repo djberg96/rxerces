@@ -312,6 +312,45 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
+  describe "#attribute_nodes" do
+    it "returns an array of attribute nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      attr_nodes = person.attribute_nodes
+      expect(attr_nodes).to be_an(Array)
+      expect(attr_nodes.length).to eq(2)
+      expect(attr_nodes.all? { |n| n.is_a?(RXerces::XML::Node) }).to be true
+    end
+
+    it "returns nodes with name and text/value" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      attr_nodes = person.attribute_nodes
+
+      id_node = attr_nodes.find { |n| n.name == 'id' }
+      expect(id_node).not_to be_nil
+      expect(id_node.text).to eq('1')
+
+      name_node = attr_nodes.find { |n| n.name == 'name' }
+      expect(name_node).not_to be_nil
+      expect(name_node.text).to eq('Alice')
+    end
+
+    it "returns empty array for elements without attributes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      age = person.children.find { |n| n.name == 'age' }
+      attr_nodes = age.attribute_nodes
+      expect(attr_nodes).to be_an(Array)
+      expect(attr_nodes).to be_empty
+    end
+
+    it "returns empty array for text nodes" do
+      person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
+      text_node = person.children.find { |n| n.is_a?(RXerces::XML::Text) }
+      attr_nodes = text_node.attribute_nodes
+      expect(attr_nodes).to be_an(Array)
+      expect(attr_nodes).to be_empty
+    end
+  end
+
   describe "#next_sibling" do
     it "returns the next sibling node" do
       people = root.children.select { |n| n.is_a?(RXerces::XML::Element) }
