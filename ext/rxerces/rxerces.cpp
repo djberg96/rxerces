@@ -1394,6 +1394,37 @@ static VALUE node_attributes(VALUE self) {
     return hash;
 }
 
+// node.attribute_nodes - returns array of attribute nodes (only for element nodes)
+static VALUE node_attribute_nodes(VALUE self) {
+    NodeWrapper* wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
+
+    VALUE nodes_array = rb_ary_new();
+
+    if (!wrapper->node || wrapper->node->getNodeType() != DOMNode::ELEMENT_NODE) {
+        return nodes_array;
+    }
+
+    DOMElement* element = dynamic_cast<DOMElement*>(wrapper->node);
+    DOMNamedNodeMap* attributes = element->getAttributes();
+
+    if (!attributes) {
+        return nodes_array;
+    }
+
+    VALUE doc_ref = wrapper->doc_ref;
+    XMLSize_t length = attributes->getLength();
+
+    for (XMLSize_t i = 0; i < length; i++) {
+        DOMNode* attr = attributes->item(i);
+        if (attr) {
+            rb_ary_push(nodes_array, wrap_node(attr, doc_ref));
+        }
+    }
+
+    return nodes_array;
+}
+
 // node.next_sibling
 static VALUE node_next_sibling(VALUE self) {
     NodeWrapper* wrapper;
@@ -2464,6 +2495,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     rb_define_method(rb_cNode, "parent", RUBY_METHOD_FUNC(node_parent), 0);
     rb_define_method(rb_cNode, "ancestors", RUBY_METHOD_FUNC(node_ancestors), -1);
     rb_define_method(rb_cNode, "attributes", RUBY_METHOD_FUNC(node_attributes), 0);
+    rb_define_method(rb_cNode, "attribute_nodes", RUBY_METHOD_FUNC(node_attribute_nodes), 0);
     rb_define_method(rb_cNode, "next_sibling", RUBY_METHOD_FUNC(node_next_sibling), 0);
     rb_define_method(rb_cNode, "next_element", RUBY_METHOD_FUNC(node_next_element), 0);
     rb_define_method(rb_cNode, "previous_sibling", RUBY_METHOD_FUNC(node_previous_sibling), 0);
