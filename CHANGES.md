@@ -1,3 +1,7 @@
+## 0.6.1 - 20-Dec-2025
+* Added more Nokogiri compatibility methods: children, first_element_child,
+  last_element_child, elements, at_xpath.
+
 ## 0.6.0 - 17-Dec-2025
 * Some internal refactoring, better initialization, some better string
   handling, that sort of stuff.
