@@ -141,24 +141,7 @@ RSpec.describe "XPath support" do
     end
   end
 
-  describe "XPath 1.0 compliance with Xalan" do
-    # Check if Xalan support is compiled in
-    xalan_available = begin
-      # Try a feature that only works with Xalan (attribute predicates)
-      test_xml = '<root><item id="1">A</item><item id="2">B</item></root>'
-      test_doc = RXerces::XML::Document.parse(test_xml)
-      result = test_doc.xpath('//item[@id="1"]')
-      result.length == 1
-    rescue
-      false
-    end
-
-    before(:all) do
-      unless xalan_available
-        skip "Xalan-C not available - XPath 1.0 features require Xalan-C library"
-      end
-    end
-
+  describe "XPath 1.0 compliance with Xalan", xalan: true do
     describe "Attribute predicates" do
       it "finds elements by attribute value" do
         book = doc.xpath('//book[@id="1"]')

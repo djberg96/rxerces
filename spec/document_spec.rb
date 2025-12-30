@@ -64,23 +64,7 @@ RSpec.describe RXerces::XML::Document do
     end
   end
 
-  describe "#css" do
-    # Check if Xalan support is compiled in (CSS requires XPath which needs Xalan)
-    xalan_available = begin
-      test_xml = '<root><item id="1">A</item><item id="2">B</item></root>'
-      test_doc = RXerces::XML::Document.parse(test_xml)
-      result = test_doc.xpath('//item[@id="1"]')
-      result.length == 1
-    rescue
-      false
-    end
-
-    before(:all) do
-      unless xalan_available
-        skip "Xalan-C not available - CSS selectors require Xalan-C library"
-      end
-    end
-
+  describe "#css", xalan: true do
     let(:xml) do
       <<-XML
         <library>
