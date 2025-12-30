@@ -233,23 +233,7 @@ RSpec.describe RXerces::XML::Node do
       expect(ancestors.any? { |a| a.name == '#document' }).to be false
     end
 
-    context "with selector" do
-      # Check if Xalan support is compiled in (selectors require XPath which needs Xalan)
-      xalan_available = begin
-        test_xml = '<root><item id="1">A</item></root>'
-        test_doc = RXerces::XML::Document.parse(test_xml)
-        result = test_doc.xpath('//item[@id="1"]')
-        result.length == 1
-      rescue
-        false
-      end
-
-      before(:all) do
-        unless xalan_available
-          skip "Xalan-C not available - ancestor selectors require Xalan-C library"
-        end
-      end
-
+    context "with selector", xalan: true do
       it "filters ancestors by tag name selector" do
         person = root.children.find { |n| n.is_a?(RXerces::XML::Element) }
         city = person.children.find { |n| n.name == 'city' }
@@ -862,23 +846,7 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
-  describe "#at_css" do
-    # Check if Xalan support is compiled in (CSS requires XPath which needs Xalan)
-    xalan_available = begin
-      test_xml = '<root><item id="1">A</item><item id="2">B</item></root>'
-      test_doc = RXerces::XML::Document.parse(test_xml)
-      result = test_doc.xpath('//item[@id="1"]')
-      result.length == 1
-    rescue
-      false
-    end
-
-    before(:all) do
-      unless xalan_available
-        skip "Xalan-C not available - CSS selectors require Xalan-C library"
-      end
-    end
-
+  describe "#at_css", xalan: true do
     it "is an alias for at (which uses CSS converted to XPath)" do
       xml = '<root><item class="foo">First</item><item class="bar">Second</item></root>'
       doc = RXerces::XML::Document.parse(xml)
@@ -902,23 +870,7 @@ RSpec.describe RXerces::XML::Node do
     end
   end
 
-  describe "#css" do
-    # Check if Xalan support is compiled in (CSS requires XPath which needs Xalan)
-    xalan_available = begin
-      test_xml = '<root><item id="1">A</item><item id="2">B</item></root>'
-      test_doc = RXerces::XML::Document.parse(test_xml)
-      result = test_doc.xpath('//item[@id="1"]')
-      result.length == 1
-    rescue
-      false
-    end
-
-    before(:all) do
-      unless xalan_available
-        skip "Xalan-C not available - CSS selectors require Xalan-C library"
-      end
-    end
-
+  describe "#css", xalan: true do
     let(:xml) do
       <<-XML
         <library>
