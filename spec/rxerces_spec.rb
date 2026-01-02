@@ -20,4 +20,29 @@ RSpec.describe RXerces do
       expect(doc).to be_a(RXerces::XML::Document)
     end
   end
+
+  describe "thread safety" do
+    it "handles concurrent initialization safely" do
+      xml = '<root><child>text</child></root>'
+      threads = []
+      results = []
+
+      # Create multiple threads that parse XML concurrently
+      10.times do
+        threads << Thread.new do
+          doc = RXerces.XML(xml)
+          results << doc.class
+        end
+      end
+
+      # Wait for all threads to complete
+      threads.each(&:join)
+
+      # All should succeed and return Document objects
+      expect(results.size).to eq(10)
+      results.each do |result|
+        expect(result).to eq(RXerces::XML::Document)
+      end
+    end
+  end
 end
