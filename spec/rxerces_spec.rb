@@ -45,4 +45,37 @@ RSpec.describe RXerces do
       end
     end
   end
+
+  describe "security" do
+    it "prevents XXE attacks by not processing external entities" do
+      # XML with external entity reference
+      malicious_xml = <<~XML
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE foo [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+        <foo>&xxe;</foo>
+      XML
+
+      # Should fail to parse because external entities are disabled
+      expect {
+        RXerces.XML(malicious_xml)
+      }.to raise_error(RuntimeError, /unable to open external entity/)
+    end
+
+    it "allows external entities when explicitly enabled" do
+      # XML with external entity reference
+      xml_with_entity = <<~XML
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE foo [ <!ENTITY test "test content"> ]>
+        <foo>&test;</foo>
+      XML
+
+      # Should succeed with internal entities even when external are disabled
+      doc = RXerces.XML(xml_with_entity)
+      expect(doc.root.text).to eq("test content")
+
+      # With allow_external_entities: true, should still handle internal entities
+      doc2 = RXerces.XML(xml_with_entity, allow_external_entities: true)
+      expect(doc2.root.text).to eq("test content")
+    end
+  end
 end

@@ -5,9 +5,10 @@ require 'rxerces/version'
 module RXerces
   # Parse XML from a string
   # @param string [String] XML string to parse
+  # @param options [Hash] parsing options
   # @return [RXerces::XML::Document] parsed document
-  def self.XML(string)
-    RXerces::XML::Document.parse(string)
+  def self.XML(string, **options)
+    RXerces::XML::Document.parse(string, **options)
   end
 
   # Alias for compatibility
