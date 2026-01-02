@@ -126,6 +126,7 @@ RSpec.describe "XPath support" do
     end
 
     it "handles very long XPath expressions" do
+      skip "Xalan installed, skipping" if xalan_installed
       long_xpath = '/' + ('child::' * 100) + 'library'
       result = doc.xpath(long_xpath)
       expect(result).to be_a(RXerces::XML::NodeSet)
