@@ -45,4 +45,20 @@ RSpec.describe RXerces do
       end
     end
   end
+
+  describe "security" do
+    it "prevents XXE attacks by not processing external entities" do
+      # XML with external entity reference
+      malicious_xml = <<~XML
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE foo [ <!ENTITY xxe SYSTEM "file:///etc/passwd"> ]>
+        <foo>&xxe;</foo>
+      XML
+
+      # Should fail to parse because external entities are disabled
+      expect {
+        RXerces.XML(malicious_xml)
+      }.to raise_error(RuntimeError, /unable to open external entity/)
+    end
+  end
 end

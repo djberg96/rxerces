@@ -3,6 +3,7 @@
 #include <xercesc/parsers/XercesDOMParser.hpp>
 #include <xercesc/dom/DOM.hpp>
 #include <xercesc/util/XMLString.hpp>
+#include <xercesc/util/XMLUni.hpp>
 #include <xercesc/framework/MemBufInputSource.hpp>
 #include <xercesc/framework/MemBufFormatTarget.hpp>
 #include <xercesc/util/XercesDefs.hpp>
@@ -391,6 +392,11 @@ static VALUE document_parse(VALUE klass, VALUE str) {
     const char* xml_str = StringValueCStr(str);
 
     XercesDOMParser* parser = new XercesDOMParser();
+
+    // Security: Disable external entity processing to prevent XXE attacks
+    parser->setLoadExternalDTD(false);
+    parser->setDisableDefaultEntityResolution(true);
+
     parser->setValidationScheme(XercesDOMParser::Val_Never);
     parser->setDoNamespaces(true);
     parser->setDoSchema(false);
