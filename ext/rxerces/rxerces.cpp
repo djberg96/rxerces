@@ -2387,33 +2387,29 @@ static VALUE nodeset_text(VALUE self) {
 }
 
 // nodeset.inspect / nodeset.to_s - human-readable representation
-// Helper function to safely truncate UTF-8 strings without cutting mid-character
-// Returns a string truncated to at most max_bytes, ensuring we don't split multi-byte characters
-static std::string utf8_safe_truncate(const std::string& str, size_t max_bytes) {
-    if (str.length() <= max_bytes) {
+// Helper function to safely truncate UTF-8 strings using Ruby's built-in UTF-8 handling
+// Ruby's rb_str_substr operates on CHARACTER positions, not byte positions
+static std::string safe_truncate_utf8(const std::string& str, long max_chars) {
+    if (str.empty()) {
         return str;
     }
 
-    // Find the last valid UTF-8 character boundary before max_bytes
-    size_t pos = max_bytes;
+    // Create a Ruby string with UTF-8 encoding
+    VALUE rb_str = rb_enc_str_new(str.c_str(), str.length(), rb_utf8_encoding());
 
-    // Walk backwards to find a valid UTF-8 character start
-    // UTF-8 continuation bytes have the pattern 10xxxxxx (0x80-0xBF)
-    // Character start bytes have patterns:
-    //   0xxxxxxx (ASCII, 0x00-0x7F)
-    //   110xxxxx (2-byte, 0xC0-0xDF)
-    //   1110xxxx (3-byte, 0xE0-0xEF)
-    //   11110xxx (4-byte, 0xF0-0xF7)
-    while (pos > 0 && (static_cast<unsigned char>(str[pos]) & 0xC0) == 0x80) {
-        pos--;
+    // Get the character length (not byte length)
+    long char_len = RSTRING_LEN(rb_str);
+
+    if (char_len <= max_chars) {
+        return str;
     }
 
-    // If we ended up at the beginning, just return empty
-    if (pos == 0) {
-        return "";
-    }
+    // Use Ruby's rb_str_substr which correctly handles multi-byte characters
+    // Parameters: string, start position (in characters), length (in characters)
+    VALUE truncated = rb_str_substr(rb_str, 0, max_chars);
 
-    return str.substr(0, pos);
+    // Convert back to C++ string
+    return std::string(RSTRING_PTR(truncated), RSTRING_LEN(truncated));
 }
 
 static VALUE nodeset_inspect(VALUE self) {
@@ -2486,7 +2482,7 @@ static VALUE nodeset_inspect(VALUE self) {
                     textStr = textStr.substr(start, end - start + 1);
 
                     if (textStr.length() > 30) {
-                        textStr = utf8_safe_truncate(textStr, 27) + "...";
+                        textStr = safe_truncate_utf8(textStr, 27) + "...";
                     }
 
                     result += ">";
@@ -2514,7 +2510,7 @@ static VALUE nodeset_inspect(VALUE self) {
                     textStr = textStr.substr(start, end - start + 1);
 
                     if (textStr.length() > 30) {
-                        textStr = utf8_safe_truncate(textStr, 27) + "...";
+                        textStr = safe_truncate_utf8(textStr, 27) + "...";
                     }
 
                     result += "text(\"";
