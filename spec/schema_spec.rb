@@ -44,7 +44,7 @@ RSpec.describe RXerces::XML::Schema do
     end
 
     # Note: Xerces-C parser is very tolerant of invalid XML
-    # So we just skip testing for invalid XML for now
+    # Schema creation succeeds even with malformed XML, validation catches issues
   end
 
   describe '.from_document' do
@@ -71,6 +71,33 @@ RSpec.describe RXerces::XML::Schema do
       expect(errors).to be_a(Array)
       expect(errors).not_to be_empty
       expect(errors.first).to include('not-a-number')
+    end
+
+    it 'handles schema grammar loading errors gracefully' do
+      # Create a schema with an invalid type reference
+      invalid_schema_xsd = <<~XSD
+        <?xml version="1.0"?>
+        <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+          <xs:element name="root">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="invalid" type="invalid-type"/>
+              </xs:sequence>
+            </xs:complexType>
+          </xs:element>
+        </xs:schema>
+      XSD
+
+      invalid_schema = described_class.from_string(invalid_schema_xsd)
+      doc = RXerces::XML::Document.parse(valid_xml)
+
+      # Validation should handle XMLException/SAXException in loadGrammar gracefully
+      # and continue with validation, producing errors
+      errors = doc.validate(invalid_schema)
+      expect(errors).to be_a(Array)
+      expect(errors).not_to be_empty
+      # Should contain errors about the invalid type
+      expect(errors.join).to include('invalid-type')
     end
   end
 end

@@ -11,6 +11,7 @@
 #include <xercesc/dom/DOMXPathExpression.hpp>
 #include <xercesc/sax/ErrorHandler.hpp>
 #include <xercesc/sax/SAXParseException.hpp>
+#include <xercesc/sax/SAXException.hpp>
 #include <sstream>
 #include <vector>
 #include <mutex>
@@ -520,6 +521,9 @@ static VALUE document_to_s(VALUE self) {
         serializer->release();
 
         return result;
+    } catch (const DOMException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "Failed to serialize document: %s", message.localForm());
     } catch (...) {
         rb_raise(rb_eRuntimeError, "Failed to serialize document");
     }
@@ -2348,6 +2352,18 @@ static VALUE schema_from_document(int argc, VALUE* argv, VALUE klass) {
 
         try {
             schemaParser->parse(schemaInput);
+        } catch (const XMLException& e) {
+            delete schemaParser;
+            delete wrapper->schemaContent;
+            xfree(wrapper);
+            CharStr message(e.getMessage());
+            rb_raise(rb_eRuntimeError, "Schema parsing failed: %s", message.localForm());
+        } catch (const SAXException& e) {
+            delete schemaParser;
+            delete wrapper->schemaContent;
+            xfree(wrapper);
+            CharStr message(e.getMessage());
+            rb_raise(rb_eRuntimeError, "Schema parsing failed: %s", message.localForm());
         } catch (...) {
             delete schemaParser;
             delete wrapper->schemaContent;
@@ -2429,6 +2445,12 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
             validator->loadGrammar(schemaSource, Grammar::SchemaGrammarType, true);
             validator->setExternalNoNamespaceSchemaLocation("schema.xsd");
             validator->useCachedGrammarInParse(true);
+        } catch (const XMLException& e) {
+            CharStr message(e.getMessage());
+            errorHandler.errors.push_back(std::string("Warning: Schema grammar could not be loaded: ") + message.localForm());
+        } catch (const SAXException& e) {
+            CharStr message(e.getMessage());
+            errorHandler.errors.push_back(std::string("Warning: Schema grammar could not be loaded: ") + message.localForm());
         } catch (...) {
             // If grammar loading fails, just note it
             errorHandler.errors.push_back("Warning: Schema grammar could not be loaded");
