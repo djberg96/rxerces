@@ -353,23 +353,24 @@ static VALUE wrap_node(DOMNode* node, VALUE doc_ref) {
         return Qnil;
     }
 
+    VALUE rb_class;
+    switch (node->getNodeType()) {
+        case DOMNode::ELEMENT_NODE:
+            rb_class = rb_cElement;
+            break;
+        case DOMNode::TEXT_NODE:
+            rb_class = rb_cText;
+            break;
+        default:
+            rb_class = rb_cNode;
+            break;
+    }
+
+    VALUE rb_node = TypedData_Wrap_Struct(rb_class, &node_type, NULL);
     NodeWrapper* wrapper = ALLOC(NodeWrapper);
     wrapper->node = node;
     wrapper->doc_ref = doc_ref;
-
-    VALUE rb_node;
-
-    switch (node->getNodeType()) {
-        case DOMNode::ELEMENT_NODE:
-            rb_node = TypedData_Wrap_Struct(rb_cElement, &node_type, wrapper);
-            break;
-        case DOMNode::TEXT_NODE:
-            rb_node = TypedData_Wrap_Struct(rb_cText, &node_type, wrapper);
-            break;
-        default:
-            rb_node = TypedData_Wrap_Struct(rb_cNode, &node_type, wrapper);
-            break;
-    }
+    DATA_PTR(rb_node) = wrapper;
 
     return rb_node;
 }
