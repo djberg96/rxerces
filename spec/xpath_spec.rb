@@ -109,7 +109,7 @@ RSpec.describe "XPath support" do
     it "raises error for invalid XPath" do
       expect {
         doc.xpath('//[invalid')
-      }.to raise_error(RuntimeError, /XPath error/)
+      }.to raise_error(ArgumentError, /XPath expression has unbalanced/)
     end
 
     it "raises error for malformed XPath expressions" do
@@ -396,6 +396,277 @@ RSpec.describe "XPath support" do
         # Note: text() returns the raw text which includes whitespace
         # This might not match due to whitespace, so we test it doesn't error
         expect { result }.not_to raise_error
+      end
+    end
+  end
+
+  describe "XPath Injection Prevention" do
+    let(:simple_xml) do
+      <<-XML
+        <users>
+          <user id="1">
+            <name>Alice</name>
+            <password>secret123</password>
+          </user>
+          <user id="2">
+            <name>Bob</name>
+            <password>admin456</password>
+          </user>
+        </users>
+      XML
+    end
+
+    let(:doc) { RXerces::XML::Document.parse(simple_xml) }
+
+    describe "validates empty XPath expressions" do
+      it "rejects empty string" do
+        expect {
+          doc.xpath('')
+        }.to raise_error(ArgumentError, /cannot be empty/)
+      end
+    end
+
+    describe "validates quote balancing" do
+      it "rejects unbalanced single quotes" do
+        expect {
+          doc.xpath("//user[text()='Alice]")
+        }.to raise_error(ArgumentError, /unbalanced quotes/)
+      end
+
+      it "rejects unbalanced double quotes" do
+        expect {
+          doc.xpath('//user[text()="Alice]')
+        }.to raise_error(ArgumentError, /unbalanced quotes/)
+      end
+
+      it "allows properly balanced quotes" do
+        expect {
+          doc.xpath("//user")
+        }.not_to raise_error
+      end
+
+      it "allows mixed balanced quotes" do
+        expect {
+          doc.xpath('//user')
+        }.not_to raise_error
+      end
+    end
+
+    describe "prevents XPath injection attacks" do
+      it "rejects OR-based injection with numeric equality" do
+        expect {
+          doc.xpath("//user[@name='Alice' or 1=1]")
+        }.to raise_error(ArgumentError, /suspicious injection pattern/)
+      end
+
+      it "rejects OR-based injection with string equality" do
+        expect {
+          doc.xpath("//user[@name='Alice' or 'a'='a']")
+        }.to raise_error(ArgumentError, /suspicious injection pattern/)
+      end
+
+      it "rejects OR-based injection with double quotes" do
+        expect {
+          doc.xpath('//user[@name="Alice" or "1"="1"]')
+        }.to raise_error(ArgumentError, /suspicious injection pattern/)
+      end
+
+      it "rejects OR-based injection with true() function" do
+        expect {
+          doc.xpath("//user[@name='Alice' or true()]")
+        }.to raise_error(ArgumentError, /suspicious injection pattern/)
+      end
+
+      it "rejects AND-based injection with false condition" do
+        expect {
+          doc.xpath("//user[@name='Alice' and 1=0]")
+        }.to raise_error(ArgumentError, /suspicious injection pattern/)
+      end
+
+      it "rejects AND-based injection with false() function" do
+        expect {
+          doc.xpath("//user[@name='Alice' and false()]")
+        }.to raise_error(ArgumentError, /suspicious injection pattern/)
+      end
+
+      it "is case-insensitive for injection patterns" do
+        expect {
+          doc.xpath("//user[@name='Alice' OR 1=1]")
+        }.to raise_error(ArgumentError, /suspicious injection pattern/)
+      end
+    end
+
+    describe "prevents dangerous function calls" do
+      it "rejects document() function" do
+        expect {
+          doc.xpath("document('file.xml')//user")
+        }.to raise_error(ArgumentError, /dangerous function/)
+      end
+
+      it "rejects doc() function" do
+        expect {
+          doc.xpath("doc('file.xml')//user")
+        }.to raise_error(ArgumentError, /dangerous function/)
+      end
+
+      it "rejects collection() function" do
+        expect {
+          doc.xpath("collection('files')//user")
+        }.to raise_error(ArgumentError, /dangerous function/)
+      end
+
+      it "rejects unparsed-text() function" do
+        expect {
+          doc.xpath("unparsed-text('/etc/passwd')")
+        }.to raise_error(ArgumentError, /dangerous function/)
+      end
+
+      it "rejects system-property() function" do
+        expect {
+          doc.xpath("system-property('java.version')")
+        }.to raise_error(ArgumentError, /dangerous function/)
+      end
+
+      it "rejects environment-variable() function" do
+        expect {
+          doc.xpath("environment-variable('PATH')")
+        }.to raise_error(ArgumentError, /dangerous function/)
+      end
+    end
+
+    describe "prevents encoded character attacks" do
+      it "rejects numeric character references" do
+        expect {
+          doc.xpath("//user[@name='&#65;lice']")
+        }.to raise_error(ArgumentError, /encoded characters/)
+      end
+
+      it "rejects hexadecimal character references" do
+        expect {
+          doc.xpath("//user[@name='&x41;lice']")
+        }.to raise_error(ArgumentError, /encoded characters/)
+      end
+    end
+
+    describe "prevents comment-based attacks" do
+      it "rejects XPath comments" do
+        expect {
+          doc.xpath("//user(: comment :)[@id='1']")
+        }.to raise_error(ArgumentError, /comment patterns/)
+      end
+
+      it "rejects partial comment syntax" do
+        expect {
+          doc.xpath("//user(:[@id='1']")
+        }.to raise_error(ArgumentError, /comment patterns/)
+      end
+    end
+
+    describe "prevents null byte injection" do
+      it "rejects expressions with null bytes" do
+        xpath_with_null = "//user" + "\x00" + "[@id='1']"
+        expect {
+          doc.xpath(xpath_with_null)
+        }.to raise_error(ArgumentError, /null byte/)
+      end
+    end
+
+    describe "prevents excessive nesting attacks (DoS)" do
+      it "rejects deeply nested brackets" do
+        nested = "//user" + ("[." * 101) + ("]" * 101)
+        expect {
+          doc.xpath(nested)
+        }.to raise_error(ArgumentError, /excessive nesting/)
+      end
+
+      it "rejects deeply nested parentheses" do
+        nested = "count(" * 101 + "//user" + ")" * 101
+        expect {
+          doc.xpath(nested)
+        }.to raise_error(ArgumentError, /excessive nesting/)
+      end
+
+      it "rejects unbalanced opening brackets" do
+        expect {
+          doc.xpath("//user[[[@id='1']")
+        }.to raise_error(ArgumentError, /unbalanced/)
+      end
+
+      it "rejects unbalanced closing brackets" do
+        expect {
+          doc.xpath("//user[@id='1']]")
+        }.to raise_error(ArgumentError, /unbalanced/)
+      end
+
+      it "rejects unbalanced parentheses" do
+        expect {
+          doc.xpath("count(//user")
+        }.to raise_error(ArgumentError, /unbalanced/)
+      end
+
+      it "allows reasonable nesting depth" do
+        nested = "//users/user/name"
+        expect {
+          doc.xpath(nested)
+        }.not_to raise_error
+      end
+    end
+
+    describe "prevents DoS via excessive length" do
+      it "rejects excessively long XPath expressions" do
+        # Create an expression over 10000 characters
+        long_part = "/user" * 2001  # Each part is ~5 chars, 2001*5 > 10000
+        long_xpath = "//users" + long_part
+        expect {
+          doc.xpath(long_xpath)
+        }.to raise_error(ArgumentError, /too long/)
+      end
+
+      it "allows reasonably long expressions" do
+        reasonable = "//users/user/name"
+        expect {
+          doc.xpath(reasonable)
+        }.not_to raise_error
+      end
+    end
+
+    describe "allows safe XPath expressions" do
+      it "allows simple path expressions" do
+        expect {
+          result = doc.xpath('//user')
+          expect(result.length).to eq(2)
+        }.not_to raise_error
+      end
+
+      it "allows descendant paths" do
+        expect {
+          result = doc.xpath('//name')
+          expect(result.length).to eq(2)
+        }.not_to raise_error
+      end
+
+      it "allows child paths" do
+        expect {
+          result = doc.xpath('/users/user')
+          expect(result.length).to eq(2)
+        }.not_to raise_error
+      end
+    end
+
+    describe "validates node XPath queries with injection prevention" do
+      it "prevents injection in node context" do
+        root = doc.root
+        expect {
+          root.xpath("//user[@name='Alice' or 1=1]")
+        }.to raise_error(ArgumentError, /suspicious injection pattern/)
+      end
+
+      it "allows safe node queries" do
+        root = doc.root
+        expect {
+          result = root.xpath('.//user')
+          expect(result.length).to eq(2)
+        }.not_to raise_error
       end
     end
   end
