@@ -65,6 +65,50 @@ RSpec.describe RXerces::XML::Node do
     it "returns empty string for nodes without text" do
       expect(root.text).to be_a(String)
     end
+
+    context "edge cases" do
+      let(:edge_xml) do
+        <<-XML
+          <root>
+            <empty></empty>
+            <mixed>Hello <b>world</b>!</mixed>
+            <whitespace>   </whitespace>
+            <cdata><![CDATA[<not>parsed</not>]]></cdata>
+            <multiline>
+              Line 1
+              Line 2
+            </multiline>
+          </root>
+        XML
+      end
+      let(:edge_doc) { RXerces::XML::Document.parse(edge_xml) }
+      let(:edge_root) { edge_doc.root }
+
+      it "returns empty string for empty elements" do
+        empty = edge_root.children.find { |n| n.name == 'empty' }
+        expect(empty.text).to eq('')
+      end
+
+      it "concatenates text from mixed content elements" do
+        mixed = edge_root.children.find { |n| n.name == 'mixed' }
+        expect(mixed.text).to eq('Hello world!')
+      end
+
+      it "preserves whitespace-only content" do
+        whitespace = edge_root.children.find { |n| n.name == 'whitespace' }
+        expect(whitespace.text).to eq('   ')
+      end
+
+      it "returns CDATA content as plain text" do
+        cdata = edge_root.children.find { |n| n.name == 'cdata' }
+        expect(cdata.text).to eq('<not>parsed</not>')
+      end
+
+      it "preserves multiline text content" do
+        multiline = edge_root.children.find { |n| n.name == 'multiline' }
+        expect(multiline.text).to include("Line 1\n              Line 2")
+      end
+    end
   end
 
   describe "#content" do
@@ -141,6 +185,33 @@ RSpec.describe RXerces::XML::Node do
     it "returns false for non-element nodes" do
       text_node = root.children.find { |n| n.is_a?(RXerces::XML::Text) }
       expect(text_node.has_attribute?('anything')).to be false if text_node
+    end
+
+    context "edge cases" do
+      let(:attr_xml) do
+        <<-XML
+          <root>
+            <element empty="" xmlns:prefix="http://example.com" special_chars="a&amp;b&lt;c&gt;">
+              content
+            </element>
+          </root>
+        XML
+      end
+      let(:attr_doc) { RXerces::XML::Document.parse(attr_xml) }
+      let(:element) { attr_doc.root.children.find { |n| n.is_a?(RXerces::XML::Element) } }
+
+      it "handles empty string attribute values" do
+        expect(element['empty']).to be_nil
+        expect(element.has_attribute?('empty')).to be false
+      end
+
+      it "handles attributes with special characters" do
+        expect(element['special_chars']).to eq('a&b<c>')
+      end
+
+      it "handles namespace prefix attributes" do
+        expect(element['xmlns:prefix']).to eq('http://example.com')
+      end
     end
   end
 
@@ -696,6 +767,37 @@ RSpec.describe RXerces::XML::Node do
     it "returns a NodeSet" do
       result = root.xpath('.//age')
       expect(result).to be_a(RXerces::XML::NodeSet)
+    end
+
+    context "edge cases" do
+      it "returns empty NodeSet for nonexistent elements" do
+        result = root.xpath('.//nonexistent')
+        expect(result).to be_a(RXerces::XML::NodeSet)
+        expect(result.length).to eq(0)
+      end
+
+      it "raises error for invalid XPath syntax" do
+        expect {
+          root.xpath('.//[invalid')
+        }.to raise_error(RuntimeError, /XPath error/)
+      end
+
+      it "handles very deep XPath expressions" do
+        # Create a deep nesting scenario
+        deep_xml = '<root>' + ('<level>' * 50) + '<deep>content</deep>' + ('</level>' * 50) + '</root>'
+        deep_doc = RXerces::XML::Document.parse(deep_xml)
+        result = deep_doc.xpath('//deep')
+        expect(result.length).to eq(1)
+        expect(result.first.text).to eq('content')
+      end
+
+      it "handles XPath with special characters in element names" do
+        special_xml = '<root><element-name_with.specials>content</element-name_with.specials></root>'
+        special_doc = RXerces::XML::Document.parse(special_xml)
+        result = special_doc.xpath('//element-name_with.specials')
+        expect(result.length).to eq(1)
+        expect(result.first.text).to eq('content')
+      end
     end
   end
 

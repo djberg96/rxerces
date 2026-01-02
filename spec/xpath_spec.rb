@@ -110,6 +110,24 @@ RSpec.describe "XPath support" do
         doc.xpath('//[invalid')
       }.to raise_error(RuntimeError, /XPath error/)
     end
+
+    it "raises error for malformed XPath expressions" do
+      expect {
+        doc.xpath('///')
+      }.to raise_error(RuntimeError, /XPath error/)
+    end
+
+    it "raises error for XPath with unsupported features" do
+      expect {
+        doc.xpath('//book[substring-before(@category, "c")]')
+      }.to raise_error(RuntimeError, /XPath error/)
+    end
+
+    it "handles very long XPath expressions" do
+      long_xpath = '/' + ('child::' * 100) + 'library'
+      result = doc.xpath(long_xpath)
+      expect(result).to be_a(RXerces::XML::NodeSet)
+    end
   end
 
   describe "Nokogiri compatibility" do

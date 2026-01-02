@@ -27,6 +27,76 @@ RSpec.describe RXerces::XML::Document do
       doc = RXerces::XML::Document.parse(complex_xml)
       expect(doc).to be_a(RXerces::XML::Document)
     end
+
+    it "handles empty documents" do
+      expect {
+        RXerces::XML::Document.parse('')
+      }.to raise_error(RuntimeError, /invalid document structure/)
+    end
+
+    it "handles documents with only XML declaration" do
+      expect {
+        RXerces::XML::Document.parse('<?xml version="1.0"?>')
+      }.to raise_error(RuntimeError, /invalid document structure/)
+    end
+
+    it "handles deeply nested elements" do
+      # Create XML with 50 levels of nesting
+      xml = '<root>'
+      50.times { |i| xml += "<level#{i}>" }
+      xml += 'deep content'
+      50.times { |i| xml += "</level#{49-i}>" }
+      xml += '</root>'
+
+      doc = RXerces::XML::Document.parse(xml)
+      expect(doc).to be_a(RXerces::XML::Document)
+      expect(doc.root.name).to eq('root')
+
+      # Verify we can access deeply nested content
+      deepest = doc.root
+      50.times { |i| deepest = deepest.element_children.first }
+      expect(deepest.text).to eq('deep content')
+    end
+
+    it "handles documents with CDATA sections" do
+      xml_with_cdata = '<root><![CDATA[<not>&parsed;]]></root>'
+      doc = RXerces::XML::Document.parse(xml_with_cdata)
+      expect(doc.root.text).to eq('<not>&parsed;')
+    end
+
+    it "handles documents with processing instructions" do
+      xml_with_pi = '<?xml-stylesheet type="text/xsl" href="style.xsl"?><root>content</root>'
+      doc = RXerces::XML::Document.parse(xml_with_pi)
+      expect(doc.root.text).to eq('content')
+    end
+
+    it "handles documents with comments" do
+      xml_with_comment = '<root><!-- This is a comment -->content</root>'
+      doc = RXerces::XML::Document.parse(xml_with_comment)
+      expect(doc.root.text).to eq('content')
+    end
+
+    it "handles mixed content" do
+      mixed_xml = '<root>text <b>bold</b> more text <i>italic</i> end</root>'
+      doc = RXerces::XML::Document.parse(mixed_xml)
+      expect(doc.root.children.length).to eq(5) # 3 text nodes + 2 elements
+      expect(doc.root.text).to eq('text bold more text italic end')
+    end
+
+    it "handles elements with many attributes" do
+      xml_many_attrs = '<root ' + (1..100).map { |i| "attr#{i}=\"value#{i}\"" }.join(' ') + '>content</root>'
+      doc = RXerces::XML::Document.parse(xml_many_attrs)
+      expect(doc.root.attributes.length).to eq(100)
+      expect(doc.root['attr50']).to eq('value50')
+    end
+
+    it "handles large text content" do
+      large_text = 'x' * 10000
+      xml_large = "<root>#{large_text}</root>"
+      doc = RXerces::XML::Document.parse(xml_large)
+      expect(doc.root.text.length).to eq(10000)
+      expect(doc.root.text).to start_with('xxxxx')
+    end
   end
 
   describe "#root" do
