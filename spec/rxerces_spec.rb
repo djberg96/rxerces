@@ -60,5 +60,22 @@ RSpec.describe RXerces do
         RXerces.XML(malicious_xml)
       }.to raise_error(RuntimeError, /unable to open external entity/)
     end
+
+    it "allows external entities when explicitly enabled" do
+      # XML with external entity reference
+      xml_with_entity = <<~XML
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE foo [ <!ENTITY test "test content"> ]>
+        <foo>&test;</foo>
+      XML
+
+      # Should succeed with internal entities even when external are disabled
+      doc = RXerces.XML(xml_with_entity)
+      expect(doc.root.text).to eq("test content")
+
+      # With allow_external_entities: true, should still handle internal entities
+      doc2 = RXerces.XML(xml_with_entity, allow_external_entities: true)
+      expect(doc2.root.text).to eq("test content")
+    end
   end
 end

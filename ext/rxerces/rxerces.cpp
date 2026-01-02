@@ -384,8 +384,11 @@ static VALUE wrap_node(DOMNode* node, VALUE doc_ref) {
     return rb_node;
 }
 
-// RXerces::XML::Document.parse(string)
-static VALUE document_parse(VALUE klass, VALUE str) {
+// RXerces::XML::Document.parse(string, options = {})
+static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
+    VALUE str, options;
+    rb_scan_args(argc, argv, "11", &str, &options);
+
     ensure_xerces_initialized();
 
     Check_Type(str, T_STRING);
@@ -393,9 +396,26 @@ static VALUE document_parse(VALUE klass, VALUE str) {
 
     XercesDOMParser* parser = new XercesDOMParser();
 
-    // Security: Disable external entity processing to prevent XXE attacks
-    parser->setLoadExternalDTD(false);
-    parser->setDisableDefaultEntityResolution(true);
+    // Check if external entities should be allowed (default: false for security)
+    bool allow_external = false;
+    if (!NIL_P(options)) {
+        Check_Type(options, T_HASH);
+        VALUE allow_key = rb_intern("allow_external_entities");
+        VALUE allow_val = rb_hash_aref(options, ID2SYM(allow_key));
+        if (RTEST(allow_val)) {
+            allow_external = true;
+        }
+    }
+
+    if (allow_external) {
+        // Allow external entities (less secure)
+        parser->setLoadExternalDTD(true);
+        parser->setDisableDefaultEntityResolution(false);
+    } else {
+        // Security: Disable external entity processing to prevent XXE attacks
+        parser->setLoadExternalDTD(false);
+        parser->setDisableDefaultEntityResolution(true);
+    }
 
     parser->setValidationScheme(XercesDOMParser::Val_Never);
     parser->setDoNamespaces(true);
@@ -2466,7 +2486,7 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
 
     rb_cDocument = rb_define_class_under(rb_mXML, "Document", rb_cObject);
     rb_undef_alloc_func(rb_cDocument);
-    rb_define_singleton_method(rb_cDocument, "parse", RUBY_METHOD_FUNC(document_parse), 1);
+    rb_define_singleton_method(rb_cDocument, "parse", RUBY_METHOD_FUNC(document_parse), -1);
     rb_define_method(rb_cDocument, "root", RUBY_METHOD_FUNC(document_root), 0);
     rb_define_method(rb_cDocument, "errors", RUBY_METHOD_FUNC(document_errors), 0);
     rb_define_method(rb_cDocument, "to_s", RUBY_METHOD_FUNC(document_to_s), 0);
