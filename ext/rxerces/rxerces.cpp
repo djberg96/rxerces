@@ -12,6 +12,7 @@
 #include <xercesc/sax/SAXParseException.hpp>
 #include <sstream>
 #include <vector>
+#include <mutex>
 
 #ifdef HAVE_XALAN
 #include <xalanc/XPath/XPathEvaluator.hpp>
@@ -50,6 +51,7 @@ static bool xerces_initialized = false;
 #ifdef HAVE_XALAN
 static bool xalan_initialized = false;
 #endif
+static std::mutex init_mutex;
 
 // Forward declarations
 static std::string css_to_xpath(const char* css);
@@ -59,6 +61,12 @@ static VALUE document_xpath(VALUE self, VALUE path);
 
 // Initialize Xerces (and Xalan if available) exactly once
 static void ensure_xerces_initialized() {
+    if (xerces_initialized) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(init_mutex);
+
     if (xerces_initialized) {
         return;
     }
