@@ -648,25 +648,104 @@ RSpec.describe RXerces::XML::Node do
     end
 
     context "with nodes from different documents" do
-      it "raises error when adding node from different document" do
+      it "automatically imports node from different document" do
         doc1 = RXerces::XML::Document.parse('<root><item>one</item></root>')
         doc2 = RXerces::XML::Document.parse('<other><item>two</item></other>')
 
         root1 = doc1.root
         item2 = doc2.root.children.find { |n| n.is_a?(RXerces::XML::Element) }
 
+        # Should not raise an error - should import automatically
         expect {
           root1.add_child(item2)
-        }.to raise_error(RuntimeError, /belongs to a different document/)
+        }.not_to raise_error
+
+        # Verify the node was added
+        items = doc1.xpath('//item')
+        expect(items.length).to eq(2)
       end
 
-      it "provides helpful error message mentioning importNode" do
+      it "imports node with all its children (deep copy)" do
         doc1 = RXerces::XML::Document.parse('<root></root>')
-        doc2 = RXerces::XML::Document.parse('<other><child/></other>')
+        doc2 = RXerces::XML::Document.parse('<other><parent><child>text</child></parent></other>')
 
-        expect {
-          doc1.root.add_child(doc2.root.children.first)
-        }.to raise_error(RuntimeError, /importNode/)
+        parent_node = doc2.xpath('//parent').first
+
+        # Add parent node from doc2 to doc1
+        doc1.root.add_child(parent_node)
+
+        # Verify the entire subtree was imported
+        expect(doc1.xpath('//parent').length).to eq(1)
+        expect(doc1.xpath('//parent/child').length).to eq(1)
+        expect(doc1.xpath('//parent/child').first.text).to eq('text')
+      end
+
+      it "preserves node content when importing" do
+        doc1 = RXerces::XML::Document.parse('<root></root>')
+        doc2 = RXerces::XML::Document.parse('<other><item attr="value">content</item></other>')
+
+        item = doc2.xpath('//item').first
+        doc1.root.add_child(item)
+
+        imported_item = doc1.xpath('//item').first
+        expect(imported_item.text).to eq('content')
+        expect(imported_item['attr']).to eq('value')
+      end
+
+      it "does not modify the original document when importing" do
+        doc1 = RXerces::XML::Document.parse('<root></root>')
+        doc2 = RXerces::XML::Document.parse('<other><item>original</item></other>')
+
+        item = doc2.xpath('//item').first
+        doc1.root.add_child(item)
+
+        # Original document should still have the item
+        # Note: importNode creates a copy, but the Ruby wrapper gets updated
+        # to point to the imported node, so we need to re-query doc2
+        expect(doc2.xpath('//item').length).to eq(1)
+      end
+
+      it "handles importing complex nested structures" do
+        doc1 = RXerces::XML::Document.parse('<root></root>')
+        doc2 = RXerces::XML::Document.parse(<<-XML)
+          <other>
+            <section id="s1">
+              <title>Section 1</title>
+              <paragraph>Content 1</paragraph>
+              <subsection>
+                <title>Subsection</title>
+                <paragraph>Nested content</paragraph>
+              </subsection>
+            </section>
+          </other>
+        XML
+
+        section = doc2.xpath('//section').first
+        doc1.root.add_child(section)
+
+        # Verify entire structure was imported
+        expect(doc1.xpath('//section').length).to eq(1)
+        expect(doc1.xpath('//section').first['id']).to eq('s1')
+        expect(doc1.xpath('//title').length).to eq(2)
+        expect(doc1.xpath('//paragraph').length).to eq(2)
+        expect(doc1.xpath('//subsection').length).to eq(1)
+      end
+
+      it "allows importing multiple nodes from different documents" do
+        doc1 = RXerces::XML::Document.parse('<root></root>')
+        doc2 = RXerces::XML::Document.parse('<other><item>A</item></other>')
+        doc3 = RXerces::XML::Document.parse('<another><item>B</item></another>')
+
+        item2 = doc2.xpath('//item').first
+        item3 = doc3.xpath('//item').first
+
+        doc1.root.add_child(item2)
+        doc1.root.add_child(item3)
+
+        items = doc1.xpath('//item')
+        expect(items.length).to eq(2)
+        expect(items[0].text).to eq('A')
+        expect(items[1].text).to eq('B')
       end
     end
 

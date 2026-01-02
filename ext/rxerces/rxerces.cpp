@@ -1741,7 +1741,7 @@ static VALUE node_add_child(VALUE self, VALUE child) {
     }
 
     DOMNode* child_node = NULL;
-    bool needs_import = false;
+    VALUE doc_ref = wrapper->doc_ref;  // Keep track of the Ruby document reference
 
     // Check if child is a string or a node
     if (TYPE(child) == T_STRING) {
@@ -1755,13 +1755,27 @@ static VALUE node_add_child(VALUE self, VALUE child) {
         NodeWrapper* child_wrapper;
         if (rb_obj_is_kind_of(child, rb_cNode)) {
             TypedData_Get_Struct(child, NodeWrapper, &node_type, child_wrapper);
-            child_node = child_wrapper->node;
+            DOMNode* original_child = child_wrapper->node;
 
             // Check if child belongs to a different document
-            DOMDocument* child_doc = child_node->getOwnerDocument();
+            DOMDocument* child_doc = original_child->getOwnerDocument();
             if (child_doc && child_doc != doc) {
-                rb_raise(rb_eRuntimeError,
-                    "Node belongs to a different document. Use importNode to adopt nodes from other documents.");
+                // Automatically import the node from the other document
+                // The second parameter 'true' means deep copy (include all descendants)
+                try {
+                    child_node = doc->importNode(original_child, true);
+
+                    // Update the child wrapper to point to the imported node
+                    // and the new document reference
+                    child_wrapper->node = child_node;
+                    child_wrapper->doc_ref = doc_ref;
+                } catch (const DOMException& e) {
+                    CharStr message(e.getMessage());
+                    rb_raise(rb_eRuntimeError, "Failed to import node from different document: %s",
+                             message.localForm());
+                }
+            } else {
+                child_node = original_child;
             }
         } else {
             rb_raise(rb_eTypeError, "Argument must be a String or Node");
