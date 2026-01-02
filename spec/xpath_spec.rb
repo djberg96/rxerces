@@ -28,6 +28,7 @@ RSpec.describe "XPath support" do
   end
 
   let(:doc) { RXerces::XML::Document.parse(xml) }
+  let(:xalan_installed) { have_library('xalan-c') }
 
   describe "Document XPath queries" do
     it "finds all book elements" do
@@ -118,6 +119,7 @@ RSpec.describe "XPath support" do
     end
 
     it "raises error for XPath with unsupported features" do
+      skip "Xalan installed, skipping" if xalan_installed
       expect {
         doc.xpath('//book[substring-before(@category, "c")]')
       }.to raise_error(RuntimeError, /XPath error/)
