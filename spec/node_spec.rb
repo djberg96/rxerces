@@ -779,7 +779,7 @@ RSpec.describe RXerces::XML::Node do
       it "raises error for invalid XPath syntax" do
         expect {
           root.xpath('.//[invalid')
-        }.to raise_error(RuntimeError, /XPath error/)
+        }.to raise_error(ArgumentError, /XPath expression has unbalanced/)
       end
 
       it "handles very deep XPath expressions" do

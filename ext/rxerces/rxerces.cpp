@@ -102,6 +102,129 @@ static void cleanup_xerces() {
     }
 }
 
+// Validate XPath expression to prevent XPath injection attacks
+static void validate_xpath_expression(const char* xpath_str) {
+    if (!xpath_str || strlen(xpath_str) == 0) {
+        rb_raise(rb_eArgError, "XPath expression cannot be empty");
+    }
+
+    std::string xpath(xpath_str);
+    size_t len = xpath.length();
+
+    // Check for excessively long XPath expressions (potential DoS)
+    if (len > 10000) {
+        rb_raise(rb_eArgError, "XPath expression is too long (max 10000 characters)");
+    }
+
+    // Check for dangerous patterns that could indicate XPath injection
+    // These patterns are commonly used in XPath injection attacks
+
+    // 1. Check for unbalanced quotes which could break out of string literals
+    int single_quotes = 0;
+    int double_quotes = 0;
+    bool in_single_quote = false;
+    bool in_double_quote = false;
+
+    for (size_t i = 0; i < len; i++) {
+        char c = xpath[i];
+
+        // Track quote state
+        if (c == '\'' && !in_double_quote) {
+            in_single_quote = !in_single_quote;
+            single_quotes++;
+        } else if (c == '"' && !in_single_quote) {
+            in_double_quote = !in_double_quote;
+            double_quotes++;
+        }
+    }
+
+    // Unbalanced quotes are suspicious
+    if (single_quotes % 2 != 0 || double_quotes % 2 != 0) {
+        rb_raise(rb_eArgError, "XPath expression contains unbalanced quotes");
+    }
+
+    // 2. Check for suspicious comment patterns that could be used to bypass validation
+    if (xpath.find("(:") != std::string::npos || xpath.find(":)") != std::string::npos) {
+        rb_raise(rb_eArgError, "XPath expression contains suspicious comment patterns");
+    }
+
+    // 3. Check for null bytes which could truncate validation
+    if (xpath.find('\0') != std::string::npos) {
+        rb_raise(rb_eArgError, "XPath expression contains null bytes");
+    }
+
+    // 4. Check for excessive nesting which could cause stack overflow
+    int bracket_depth = 0;
+    int paren_depth = 0;
+    const int MAX_DEPTH = 100;
+
+    for (size_t i = 0; i < len; i++) {
+        char c = xpath[i];
+
+        if (c == '[') bracket_depth++;
+        else if (c == ']') bracket_depth--;
+        else if (c == '(') paren_depth++;
+        else if (c == ')') paren_depth--;
+
+        if (bracket_depth > MAX_DEPTH || paren_depth > MAX_DEPTH) {
+            rb_raise(rb_eArgError, "XPath expression has excessive nesting depth");
+        }
+
+        if (bracket_depth < 0 || paren_depth < 0) {
+            rb_raise(rb_eArgError, "XPath expression has unbalanced brackets or parentheses");
+        }
+    }
+
+    if (bracket_depth != 0 || paren_depth != 0) {
+        rb_raise(rb_eArgError, "XPath expression has unbalanced brackets or parentheses");
+    }
+
+    // 5. Check for suspicious function calls that could access system functions
+    // or perform dangerous operations
+    std::vector<std::string> dangerous_patterns = {
+        "document(",       // Can access external documents
+        "doc(",            // Can access external documents
+        "collection(",     // Can access external collections
+        "unparsed-text(", // Can read arbitrary files
+        "system-property(", // Can leak system information
+        "environment-variable(", // Can leak environment variables
+    };
+
+    for (const auto& pattern : dangerous_patterns) {
+        if (xpath.find(pattern) != std::string::npos) {
+            rb_raise(rb_eArgError, "XPath expression contains potentially dangerous function: %s", pattern.c_str());
+        }
+    }
+
+    // 6. Check for encoded characters that could bypass validation
+    if (xpath.find("&#") != std::string::npos || xpath.find("&x") != std::string::npos) {
+        rb_raise(rb_eArgError, "XPath expression contains encoded characters");
+    }
+
+    // 7. Detect potential boolean-based blind XPath injection patterns
+    // These patterns use 'or' with always-true conditions
+    std::vector<std::string> injection_patterns = {
+        "or 1=1",
+        "or '1'='1'",
+        "or \"1\"=\"1\"",
+        "or true()",
+        "and 1=0",
+        "and false()",
+        "or 'a'='a'",
+        "or \"a\"=\"a\"",
+    };
+
+    // Convert to lowercase for case-insensitive comparison
+    std::string xpath_lower = xpath;
+    std::transform(xpath_lower.begin(), xpath_lower.end(), xpath_lower.begin(), ::tolower);
+
+    for (const auto& pattern : injection_patterns) {
+        if (xpath_lower.find(pattern) != std::string::npos) {
+            rb_raise(rb_eArgError, "XPath expression contains suspicious injection pattern");
+        }
+    }
+}
+
 // Helper class to manage XMLCh strings
 class XStr {
 public:
@@ -741,6 +864,9 @@ static VALUE document_last_element_child(VALUE self) {
 #ifdef HAVE_XALAN
 // Helper function to execute XPath using Xalan for full XPath 1.0 support
 static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_str, VALUE doc_ref) {
+    // Validate XPath expression before execution
+    validate_xpath_expression(xpath_str);
+
     ensure_xerces_initialized();
 
     try {
@@ -847,6 +973,9 @@ static VALUE document_xpath(VALUE self, VALUE path) {
 
     Check_Type(path, T_STRING);
     const char* xpath_str = StringValueCStr(path);
+
+    // Validate XPath expression before execution
+    validate_xpath_expression(xpath_str);
 
 #ifdef HAVE_XALAN
     // Use Xalan for full XPath 1.0 support
@@ -1821,6 +1950,9 @@ static VALUE node_xpath(VALUE self, VALUE path) {
     Check_Type(path, T_STRING);
     const char* xpath_str = StringValueCStr(path);
     VALUE doc_ref = node_wrapper->doc_ref;
+
+    // Validate XPath expression before execution
+    validate_xpath_expression(xpath_str);
 
 #ifdef HAVE_XALAN
     // Use Xalan for full XPath 1.0 support
