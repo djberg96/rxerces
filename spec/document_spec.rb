@@ -288,4 +288,117 @@ RSpec.describe RXerces::XML::Document do
       end
     end
   end
+
+  describe "parse options validation" do
+    let(:simple_xml) { '<root><child>test</child></root>' }
+
+    context "with valid options" do
+      it "accepts no options" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml)
+        }.not_to raise_error
+      end
+
+      it "accepts nil options" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, nil)
+        }.not_to raise_error
+      end
+
+      it "accepts empty hash" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, {})
+        }.not_to raise_error
+      end
+
+      it "accepts allow_external_entities with symbol key" do
+        expect {
+          doc = RXerces::XML::Document.parse(simple_xml, allow_external_entities: false)
+          expect(doc).to be_a(RXerces::XML::Document)
+        }.not_to raise_error
+      end
+
+      it "accepts allow_external_entities with string key" do
+        expect {
+          doc = RXerces::XML::Document.parse(simple_xml, 'allow_external_entities' => false)
+          expect(doc).to be_a(RXerces::XML::Document)
+        }.not_to raise_error
+      end
+
+      it "accepts allow_external_entities set to true" do
+        expect {
+          doc = RXerces::XML::Document.parse(simple_xml, allow_external_entities: true)
+          expect(doc).to be_a(RXerces::XML::Document)
+        }.not_to raise_error
+      end
+    end
+
+    context "with invalid options" do
+      it "rejects unknown option keys" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, unknown_option: true)
+        }.to raise_error(ArgumentError, /Unknown option: unknown_option/)
+      end
+
+      it "rejects multiple unknown options and reports the first one" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, foo: 1, bar: 2)
+        }.to raise_error(ArgumentError, /Unknown option:/)
+      end
+
+      it "lists allowed options in error message" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, invalid: true)
+        }.to raise_error(ArgumentError, /Allowed options are: allow_external_entities/)
+      end
+
+      it "rejects options with both valid and invalid keys" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml,
+                                      allow_external_entities: true,
+                                      invalid_key: false)
+        }.to raise_error(ArgumentError, /Unknown option: invalid_key/)
+      end
+
+      it "rejects non-string, non-symbol keys" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, 123 => true)
+        }.to raise_error(ArgumentError, /Option keys must be symbols or strings/)
+      end
+
+      it "rejects options that are not a hash" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, "not a hash")
+        }.to raise_error(TypeError)
+      end
+
+      it "rejects options array" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, [:allow_external_entities])
+        }.to raise_error(TypeError)
+      end
+    end
+
+    context "security" do
+      it "prevents typos from silently disabling security features" do
+        # If someone mistypes allow_external_entities, it should fail
+        # rather than silently ignoring the option
+        expect {
+          RXerces::XML::Document.parse(simple_xml, allow_external_entity: true)
+        }.to raise_error(ArgumentError, /Unknown option/)
+      end
+
+      it "prevents typos with underscores" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, allowexternalentities: true)
+        }.to raise_error(ArgumentError, /Unknown option/)
+      end
+
+      it "prevents similar-looking options" do
+        expect {
+          RXerces::XML::Document.parse(simple_xml, external_entities: true)
+        }.to raise_error(ArgumentError, /Unknown option/)
+      end
+    end
+  end
 end

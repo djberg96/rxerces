@@ -509,6 +509,53 @@ static VALUE wrap_node(DOMNode* node, VALUE doc_ref) {
 }
 
 // RXerces::XML::Document.parse(string, options = {})
+// Validate options hash for document_parse - only allow known keys
+static void validate_parse_options(VALUE options) {
+    if (NIL_P(options)) {
+        return;
+    }
+
+    Check_Type(options, T_HASH);
+
+    // Define allowed option keys
+    std::vector<const char*> allowed_keys = {
+        "allow_external_entities"
+    };
+
+    // Get all keys from the provided options hash
+    VALUE keys = rb_funcall(options, rb_intern("keys"), 0);
+    long keys_len = RARRAY_LEN(keys);
+
+    // Check each key against the allowed list
+    for (long i = 0; i < keys_len; i++) {
+        VALUE key = rb_ary_entry(keys, i);
+
+        // Convert symbol or string key to string for comparison
+        VALUE key_str;
+        if (TYPE(key) == T_SYMBOL) {
+            key_str = rb_sym_to_s(key);
+        } else if (TYPE(key) == T_STRING) {
+            key_str = key;
+        } else {
+            rb_raise(rb_eArgError, "Option keys must be symbols or strings");
+        }
+
+        const char* key_cstr = StringValueCStr(key_str);
+        bool found = false;
+
+        for (const auto& allowed : allowed_keys) {
+            if (strcmp(key_cstr, allowed) == 0) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            rb_raise(rb_eArgError, "Unknown option: %s. Allowed options are: allow_external_entities", key_cstr);
+        }
+    }
+}
+
 static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
     VALUE str, options;
     rb_scan_args(argc, argv, "11", &str, &options);
@@ -518,12 +565,14 @@ static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
     Check_Type(str, T_STRING);
     const char* xml_str = StringValueCStr(str);
 
+    // Validate options hash before processing
+    validate_parse_options(options);
+
     XercesDOMParser* parser = new XercesDOMParser();
 
     // Check if external entities should be allowed (default: false for security)
     bool allow_external = false;
     if (!NIL_P(options)) {
-        Check_Type(options, T_HASH);
         VALUE allow_key = rb_intern("allow_external_entities");
         VALUE allow_val = rb_hash_aref(options, ID2SYM(allow_key));
         if (RTEST(allow_val)) {
