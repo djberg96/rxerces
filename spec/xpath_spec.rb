@@ -543,8 +543,21 @@ RSpec.describe "XPath support" do
 
       it "rejects hexadecimal character references" do
         expect {
-          doc.xpath("//user[@name='&x41;lice']")
+          doc.xpath("//user[@name='&#x41;lice']")
         }.to raise_error(ArgumentError, /encoded characters/)
+      end
+
+      it "rejects double-encoded entity references" do
+        expect {
+          doc.xpath("//user[@name='&amp;#65;lice']")
+        }.to raise_error(ArgumentError, /encoded characters/)
+      end
+
+      it "allows legitimate ampersand usage in text" do
+        # Should not raise - legitimate use of & in string literals
+        xml = "<root><item name='Q&amp;A'>text</item></root>"
+        test_doc = RXerces::XML::Document.parse(xml)
+        expect { test_doc.xpath("//item") }.not_to raise_error
       end
     end
 
