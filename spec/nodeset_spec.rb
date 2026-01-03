@@ -145,6 +145,96 @@ RSpec.describe RXerces::XML::NodeSet do
     end
   end
 
+  describe "#inspect" do
+    it "returns a string representation" do
+      result = nodeset.inspect
+      expect(result).to be_a(String)
+      expect(result).to include('RXerces::XML::NodeSet')
+    end
+
+    it "shows element names in the output" do
+      result = nodeset.inspect
+      expect(result).to include('<item>')
+    end
+
+    it "truncates long content" do
+      long_xml = '<root><item>' + ('x' * 100) + '</item></root>'
+      doc = RXerces::XML::Document.parse(long_xml)
+      result = doc.xpath('//item').inspect
+      expect(result).to include('...')
+      expect(result.length).to be < long_xml.length
+    end
+
+    context "with UTF-8 content" do
+      it "handles multi-byte characters without corruption" do
+        # Test with various multi-byte UTF-8 characters
+        utf8_xml = '<root><item>Hello 世界 🌍 Привет</item></root>'
+        doc = RXerces::XML::Document.parse(utf8_xml)
+        result = doc.xpath('//item').inspect
+
+        # Should not raise encoding errors
+        expect { result.encode('UTF-8') }.not_to raise_error
+        expect(result.encoding).to eq(Encoding::UTF_8)
+      end
+
+      it "truncates UTF-8 strings safely without cutting mid-character" do
+        # Create a string with multi-byte characters that would be cut off
+        # Use Japanese characters (3 bytes each in UTF-8) near the truncation boundary
+        long_text = 'a' * 25 + '世界你好こんにちは' + 'x' * 50
+        utf8_xml = "<root><item>#{long_text}</item></root>"
+        doc = RXerces::XML::Document.parse(utf8_xml)
+        result = doc.xpath('//item').inspect
+
+        # Result should be valid UTF-8
+        expect(result).to be_valid_encoding
+        expect { result.encode('UTF-8') }.not_to raise_error
+      end
+
+      it "handles emojis and 4-byte UTF-8 characters" do
+        # Emojis are 4-byte UTF-8 characters
+        emoji_xml = '<root><item>Test 🎉🎊🎈🎁🎀🎂 more text here that is quite long</item></root>'
+        doc = RXerces::XML::Document.parse(emoji_xml)
+        result = doc.xpath('//item').inspect
+
+        expect(result).to be_valid_encoding
+        expect { result.encode('UTF-8') }.not_to raise_error
+      end
+
+      it "handles mixed ASCII and multi-byte characters" do
+        mixed_xml = '<root><item>ASCII テキスト text 文字 more</item></root>'
+        doc = RXerces::XML::Document.parse(mixed_xml)
+        result = doc.xpath('//item').inspect
+
+        expect(result).to be_valid_encoding
+      end
+
+      it "handles UTF-8 in text nodes" do
+        text_xml = '<root><item>こんにちは世界' + ('x' * 50) + '</item></root>'
+        doc = RXerces::XML::Document.parse(text_xml)
+        # Get the item element which contains the text
+        result = doc.xpath('//item').inspect
+
+        expect(result).to be_valid_encoding
+      end
+
+      it "handles Cyrillic characters" do
+        cyrillic_xml = '<root><item>Привет мир это длинный текст на русском языке</item></root>'
+        doc = RXerces::XML::Document.parse(cyrillic_xml)
+        result = doc.xpath('//item').inspect
+
+        expect(result).to be_valid_encoding
+      end
+
+      it "handles Arabic characters" do
+        arabic_xml = '<root><item>مرحبا بالعالم هذا نص طويل بالعربية</item></root>'
+        doc = RXerces::XML::Document.parse(arabic_xml)
+        result = doc.xpath('//item').inspect
+
+        expect(result).to be_valid_encoding
+      end
+    end
+  end
+
   it "includes Enumerable" do
     expect(RXerces::XML::NodeSet.ancestors).to include(Enumerable)
   end

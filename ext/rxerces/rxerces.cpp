@@ -1,4 +1,5 @@
 #include "rxerces.h"
+#include <ruby/encoding.h>
 #include <xercesc/util/PlatformUtils.hpp>
 #include <xercesc/parsers/XercesDOMParser.hpp>
 #include <xercesc/dom/DOM.hpp>
@@ -2386,6 +2387,31 @@ static VALUE nodeset_text(VALUE self) {
 }
 
 // nodeset.inspect / nodeset.to_s - human-readable representation
+// Helper function to safely truncate UTF-8 strings using Ruby's built-in UTF-8 handling
+// Ruby's rb_str_substr operates on CHARACTER positions, not byte positions
+static std::string safe_truncate_utf8(const std::string& str, long max_chars) {
+    if (str.empty()) {
+        return str;
+    }
+
+    // Create a Ruby string with UTF-8 encoding
+    VALUE rb_str = rb_enc_str_new(str.c_str(), str.length(), rb_utf8_encoding());
+
+    // Get the character length (not byte length)
+    long char_len = RSTRING_LEN(rb_str);
+
+    if (char_len <= max_chars) {
+        return str;
+    }
+
+    // Use Ruby's rb_str_substr which correctly handles multi-byte characters
+    // Parameters: string, start position (in characters), length (in characters)
+    VALUE truncated = rb_str_substr(rb_str, 0, max_chars);
+
+    // Convert back to C++ string
+    return std::string(RSTRING_PTR(truncated), RSTRING_LEN(truncated));
+}
+
 static VALUE nodeset_inspect(VALUE self) {
     NodeSetWrapper* wrapper;
     TypedData_Get_Struct(self, NodeSetWrapper, &nodeset_type, wrapper);
@@ -2456,7 +2482,7 @@ static VALUE nodeset_inspect(VALUE self) {
                     textStr = textStr.substr(start, end - start + 1);
 
                     if (textStr.length() > 30) {
-                        textStr = textStr.substr(0, 27) + "...";
+                        textStr = safe_truncate_utf8(textStr, 27) + "...";
                     }
 
                     result += ">";
@@ -2484,7 +2510,7 @@ static VALUE nodeset_inspect(VALUE self) {
                     textStr = textStr.substr(start, end - start + 1);
 
                     if (textStr.length() > 30) {
-                        textStr = textStr.substr(0, 27) + "...";
+                        textStr = safe_truncate_utf8(textStr, 27) + "...";
                     }
 
                     result += "text(\"";
@@ -2506,7 +2532,10 @@ static VALUE nodeset_inspect(VALUE self) {
     }
 
     result += "]>";
-    return rb_str_new_cstr(result.c_str());
+    VALUE rb_result = rb_str_new_cstr(result.c_str());
+    // Ensure the string is marked as UTF-8 encoded
+    rb_enc_associate(rb_result, rb_utf8_encoding());
+    return rb_result;
 }
 
 // Schema.from_document(schema_doc) or Schema.from_string(xsd_string)
