@@ -149,6 +149,64 @@ RSpec.describe "XPath Validation Cache" do
         expect([true, false]).to include(RXerces.xalan_enabled?)
       end
     end
+
+    describe ".xpath_max_length" do
+      it "returns 10000 by default" do
+        expect(RXerces.xpath_max_length).to eq(10_000)
+      end
+    end
+
+    describe ".xpath_max_length=" do
+      after(:each) do
+        # Restore default after each test
+        RXerces.xpath_max_length = 10_000
+      end
+
+      it "sets the maximum XPath expression length" do
+        RXerces.xpath_max_length = 5000
+        expect(RXerces.xpath_max_length).to eq(5000)
+      end
+
+      it "accepts zero to disable the limit" do
+        RXerces.xpath_max_length = 0
+        expect(RXerces.xpath_max_length).to eq(0)
+      end
+
+      it "raises TypeError for non-integer values" do
+        expect { RXerces.xpath_max_length = "1000" }.to raise_error(TypeError)
+        expect { RXerces.xpath_max_length = 1.5 }.to raise_error(TypeError)
+        expect { RXerces.xpath_max_length = nil }.to raise_error(TypeError)
+      end
+
+      it "raises ArgumentError for negative values" do
+        expect { RXerces.xpath_max_length = -1 }.to raise_error(ArgumentError)
+        expect { RXerces.xpath_max_length = -100 }.to raise_error(ArgumentError)
+      end
+
+      it "rejects XPath expressions exceeding the limit" do
+        RXerces.xpath_max_length = 50
+        expect {
+          doc.xpath("//" + "a" * 50)
+        }.to raise_error(ArgumentError, /too long/)
+      end
+
+      it "allows XPath expressions within the limit" do
+        RXerces.xpath_max_length = 100
+        expect { doc.xpath("//item") }.not_to raise_error
+      end
+
+      it "allows any length when set to zero" do
+        RXerces.xpath_max_length = 0
+        # This would normally exceed the default 10k limit
+        long_xpath = "//" + "a" * 15_000
+        # Should not raise "too long" error - verify by checking it doesn't match that pattern
+        begin
+          doc.xpath(long_xpath)
+        rescue ArgumentError => e
+          expect(e.message).not_to match(/too long/)
+        end
+      end
+    end
   end
 
   describe "caching behavior" do

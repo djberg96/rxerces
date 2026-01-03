@@ -66,6 +66,7 @@ static std::unordered_map<std::string, std::list<std::string>::iterator>* xpath_
 static std::mutex xpath_cache_mutex;
 static bool cache_xpath_validation = true;  // Default: enabled
 static size_t xpath_cache_max_size = 10000; // Max cached expressions
+static size_t xpath_max_length = 10000;     // Max XPath expression length
 
 // Forward declarations
 static std::string css_to_xpath(const char* css);
@@ -151,8 +152,8 @@ static void validate_xpath_expression(const char* xpath_str) {
     size_t len = xpath.length();
 
     // Check for excessively long XPath expressions (potential DoS)
-    if (len > 10000) {
-        rb_raise(rb_eArgError, "XPath expression is too long (max 10000 characters)");
+    if (xpath_max_length > 0 && len > xpath_max_length) {
+        rb_raise(rb_eArgError, "XPath expression is too long (max %zu characters)", xpath_max_length);
     }
 
     // Check for dangerous patterns that could indicate XPath injection
@@ -2854,6 +2855,27 @@ static VALUE rxerces_xalan_enabled_p(VALUE self) {
 #endif
 }
 
+// RXerces.xpath_max_length - get max XPath expression length
+static VALUE rxerces_xpath_max_length(VALUE self) {
+    return LONG2NUM((long)xpath_max_length);
+}
+
+// RXerces.xpath_max_length = n - set max XPath expression length (0 = no limit)
+static VALUE rxerces_set_xpath_max_length(VALUE self, VALUE val) {
+    // Validate input: must be a non-negative integer
+    if (!RB_INTEGER_TYPE_P(val)) {
+        rb_raise(rb_eTypeError, "xpath_max_length must be an Integer");
+    }
+
+    long size = NUM2LONG(val);
+    if (size < 0) {
+        rb_raise(rb_eArgError, "xpath_max_length must be non-negative");
+    }
+
+    xpath_max_length = (size_t)size;
+    return val;
+}
+
 extern "C" void Init_rxerces(void) {
     rb_mRXerces = rb_define_module("RXerces");
 
@@ -2864,6 +2886,8 @@ extern "C" void Init_rxerces(void) {
     rb_define_singleton_method(rb_mRXerces, "xpath_validation_cache_size", RUBY_METHOD_FUNC(rxerces_xpath_validation_cache_size), 0);
     rb_define_singleton_method(rb_mRXerces, "xpath_validation_cache_max_size", RUBY_METHOD_FUNC(rxerces_xpath_validation_cache_max_size), 0);
     rb_define_singleton_method(rb_mRXerces, "xpath_validation_cache_max_size=", RUBY_METHOD_FUNC(rxerces_set_xpath_validation_cache_max_size), 1);
+    rb_define_singleton_method(rb_mRXerces, "xpath_max_length", RUBY_METHOD_FUNC(rxerces_xpath_max_length), 0);
+    rb_define_singleton_method(rb_mRXerces, "xpath_max_length=", RUBY_METHOD_FUNC(rxerces_set_xpath_max_length), 1);
     rb_define_singleton_method(rb_mRXerces, "xalan_enabled?", RUBY_METHOD_FUNC(rxerces_xalan_enabled_p), 0);
 
     rb_mXML = rb_define_module_under(rb_mRXerces, "XML");
