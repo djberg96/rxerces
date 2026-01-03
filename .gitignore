@@ -3,5 +3,8 @@ tmp/
 Gemfile.lock
 .rspec_status
 *.so
+*.o
 *.bundle
+*.dSYM*
+Makefile
 mkmf.log
