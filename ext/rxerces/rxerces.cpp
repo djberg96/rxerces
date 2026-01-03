@@ -222,7 +222,10 @@ static void validate_xpath_expression(const char* xpath_str) {
     }
 
     // 6. Check for encoded characters that could bypass validation
-    if (xpath.find("&#") != std::string::npos || xpath.find("&x") != std::string::npos) {
+    // Use specific patterns to avoid false positives (e.g., "Q&A" in text)
+    if (xpath.find("&#") != std::string::npos ||    // Numeric character reference (&#60;)
+        xpath.find("&#x") != std::string::npos ||   // Hex character reference (&#x3C;)
+        xpath.find("&amp;#") != std::string::npos) { // Encoded entity reference
         rb_raise(rb_eArgError, "XPath expression contains encoded characters");
     }
 
