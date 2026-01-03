@@ -5,6 +5,17 @@ require 'spec_helper'
 RSpec.describe "XPath Validation Cache" do
   let(:doc) { RXerces::XML::Document.parse('<root><item id="1"/><item id="2"/></root>') }
 
+  # Helper to generate unique XPath expressions that work with or without Xalan
+  # With Xalan: uses attribute predicates for more realistic expressions
+  # Without Xalan: uses unique element names
+  def unique_xpath(prefix, index)
+    if RXerces.xalan_enabled?
+      "//item[@id='#{prefix}_#{index}']"
+    else
+      "//#{prefix}#{index}"
+    end
+  end
+
   before(:each) do
     # Reset to default state before each test
     RXerces.cache_xpath_validation = true
@@ -70,7 +81,11 @@ RSpec.describe "XPath Validation Cache" do
 
       it "counts unique expressions" do
         doc.xpath("//item")
-        doc.xpath("//item[@id='1']")
+        if RXerces.xalan_enabled?
+          doc.xpath("//item[@id='1']")
+        else
+          doc.xpath("//root")
+        end
         doc.xpath("/root/item")
         expect(RXerces.xpath_validation_cache_size).to eq(3)
       end
@@ -113,7 +128,11 @@ RSpec.describe "XPath Validation Cache" do
     describe ".clear_xpath_validation_cache" do
       it "empties the cache" do
         doc.xpath("//item")
-        doc.xpath("//item[@id='1']")
+        if RXerces.xalan_enabled?
+          doc.xpath("//item[@id='1']")
+        else
+          doc.xpath("//root")
+        end
         expect(RXerces.xpath_validation_cache_size).to be > 0
 
         RXerces.clear_xpath_validation_cache
@@ -148,7 +167,8 @@ RSpec.describe "XPath Validation Cache" do
     it "reuses cached validations for identical expressions" do
       # This is implicitly tested by the fact that repeated queries
       # don't increase cache size
-      5.times { doc.xpath("//item[@id='1']") }
+      xpath = RXerces.xalan_enabled? ? "//item[@id='1']" : "//item"
+      5.times { doc.xpath(xpath) }
       expect(RXerces.xpath_validation_cache_size).to eq(1)
     end
 
@@ -198,7 +218,7 @@ RSpec.describe "XPath Validation Cache" do
       threads = 10.times.map do |i|
         Thread.new do
           100.times do |j|
-            doc.xpath("//item[@id='#{i}_#{j}']")
+            doc.xpath(unique_xpath("t#{i}", j))
           end
         end
       end
@@ -221,7 +241,7 @@ RSpec.describe "XPath Validation Cache" do
       3.times do |i|
         threads << Thread.new do
           50.times do |j|
-            doc.xpath("//item[@id='#{i}_#{j}']")
+            doc.xpath(unique_xpath("c#{i}", j))
           end
         end
       end
@@ -244,7 +264,7 @@ RSpec.describe "XPath Validation Cache" do
       3.times do |i|
         threads << Thread.new do
           100.times do |j|
-            doc.xpath("//item[@id='#{i}_#{j}']")
+            doc.xpath(unique_xpath("r#{i}", j))
           end
         end
       end
