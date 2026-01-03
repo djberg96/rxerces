@@ -729,8 +729,13 @@ static VALUE document_to_s(VALUE self) {
     } catch (const DOMException& e) {
         CharStr message(e.getMessage());
         rb_raise(rb_eRuntimeError, "Failed to serialize document: %s", message.localForm());
+    } catch (const XMLException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "Failed to serialize document (XMLException): %s", message.localForm());
+    } catch (const std::exception& e) {
+        rb_raise(rb_eRuntimeError, "Failed to serialize document (std::exception): %s", e.what());
     } catch (...) {
-        rb_raise(rb_eRuntimeError, "Failed to serialize document");
+        rb_raise(rb_eRuntimeError, "Failed to serialize document (unknown exception type)");
     }
 
     return Qnil;
