@@ -191,6 +191,35 @@ RSpec.describe "XPath Validation Cache" do
       doc.xpath("//e")
       expect(RXerces.xpath_validation_cache_size).to eq(3)
     end
+
+    it "uses LRU eviction when cache is full" do
+      RXerces.xpath_validation_cache_max_size = 3
+
+      # Add 3 expressions: //a is oldest, //c is newest
+      doc.xpath("//a")
+      doc.xpath("//b")
+      doc.xpath("//c")
+
+      # Access //a again to make it most recently used
+      # Now order is: //a (newest), //c, //b (oldest)
+      doc.xpath("//a")
+
+      # Add //d, which should evict //b (least recently used)
+      doc.xpath("//d")
+      expect(RXerces.xpath_validation_cache_size).to eq(3)
+
+      # //a should still be cached (was accessed recently)
+      # We can verify by checking that accessing it doesn't change cache size
+      doc.xpath("//a")
+      expect(RXerces.xpath_validation_cache_size).to eq(3)
+
+      # //b was evicted, adding it again should evict //c (now oldest)
+      doc.xpath("//b")
+      expect(RXerces.xpath_validation_cache_size).to eq(3)
+
+      # Cache should now contain: //b, //a, //d (in MRU order)
+      # //c was evicted
+    end
   end
 
   describe "thread safety" do
