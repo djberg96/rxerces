@@ -8,6 +8,7 @@ RSpec.describe "XPath Validation Cache" do
   before(:each) do
     # Reset to default state before each test
     RXerces.cache_xpath_validation = true
+    RXerces.xpath_validation_cache_max_size = 10_000
     RXerces.clear_xpath_validation_cache
   end
 
@@ -90,6 +91,22 @@ RSpec.describe "XPath Validation Cache" do
       it "accepts large values" do
         RXerces.xpath_validation_cache_max_size = 100_000
         expect(RXerces.xpath_validation_cache_max_size).to eq(100_000)
+      end
+
+      it "accepts zero" do
+        RXerces.xpath_validation_cache_max_size = 0
+        expect(RXerces.xpath_validation_cache_max_size).to eq(0)
+      end
+
+      it "raises TypeError for non-integer values" do
+        expect { RXerces.xpath_validation_cache_max_size = "1000" }.to raise_error(TypeError)
+        expect { RXerces.xpath_validation_cache_max_size = 1.5 }.to raise_error(TypeError)
+        expect { RXerces.xpath_validation_cache_max_size = nil }.to raise_error(TypeError)
+      end
+
+      it "raises ArgumentError for negative values" do
+        expect { RXerces.xpath_validation_cache_max_size = -1 }.to raise_error(ArgumentError)
+        expect { RXerces.xpath_validation_cache_max_size = -100 }.to raise_error(ArgumentError)
       end
     end
 

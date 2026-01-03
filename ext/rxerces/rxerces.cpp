@@ -2804,7 +2804,17 @@ static VALUE rxerces_xpath_validation_cache_max_size(VALUE self) {
 
 // RXerces.xpath_validation_cache_max_size = n - set max cache size
 static VALUE rxerces_set_xpath_validation_cache_max_size(VALUE self, VALUE val) {
-    xpath_cache_max_size = NUM2LONG(val);
+    // Validate input: must be a non-negative integer
+    if (!RB_INTEGER_TYPE_P(val)) {
+        rb_raise(rb_eTypeError, "xpath_validation_cache_max_size must be an Integer");
+    }
+
+    long size = NUM2LONG(val);
+    if (size < 0) {
+        rb_raise(rb_eArgError, "xpath_validation_cache_max_size must be non-negative");
+    }
+
+    xpath_cache_max_size = (size_t)size;
     return val;
 }
 
