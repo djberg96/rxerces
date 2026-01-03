@@ -247,6 +247,34 @@ For full XPath 1.0 support, install the Xalan library.
 
 - `RXerces.XML(string)` - Parse XML string and return Document
 - `RXerces.parse(string)` - Alias for `XML`
+- `RXerces.xalan_enabled?` - Check if Xalan XPath 1.0 support is available
+
+#### XPath Validation Cache Configuration
+
+RXerces validates XPath expressions for security (preventing injection attacks). For high-volume applications, validated expressions are cached to avoid redundant validation overhead.
+
+```ruby
+# Check if caching is enabled (default: true)
+RXerces.cache_xpath_validation?  # => true
+
+# Disable caching (re-validates every query)
+RXerces.cache_xpath_validation = false
+
+# Re-enable caching
+RXerces.cache_xpath_validation = true
+
+# Get current cache size
+RXerces.xpath_validation_cache_size  # => 42
+
+# Get/set maximum cache size (default: 10,000)
+RXerces.xpath_validation_cache_max_size       # => 10000
+RXerces.xpath_validation_cache_max_size = 5000
+
+# Clear the cache
+RXerces.clear_xpath_validation_cache
+```
+
+**Performance note:** Caching provides ~7-9% speedup for repeated XPath queries by avoiding redundant validation. The cache is thread-safe.
 
 ### RXerces::XML::Document
 
