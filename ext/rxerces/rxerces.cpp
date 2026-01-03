@@ -16,6 +16,7 @@
 #include <sstream>
 #include <vector>
 #include <mutex>
+#include <unordered_set>
 
 #ifdef HAVE_XALAN
 #include <xalanc/XPath/XPathEvaluator.hpp>
@@ -56,6 +57,12 @@ static bool xalan_initialized = false;
 #endif
 static std::mutex init_mutex;
 
+// XPath validation cache
+static std::unordered_set<std::string>* xpath_validation_cache = nullptr;
+static std::mutex xpath_cache_mutex;
+static bool cache_xpath_validation = true;  // Default: enabled
+static size_t xpath_cache_max_size = 10000; // Max cached expressions
+
 // Forward declarations
 static std::string css_to_xpath(const char* css);
 static VALUE node_css(VALUE self, VALUE selector);
@@ -91,6 +98,12 @@ static void ensure_xerces_initialized() {
 
 // Cleanup function called at exit
 static void cleanup_xerces() {
+    // Clean up XPath validation cache
+    if (xpath_validation_cache) {
+        delete xpath_validation_cache;
+        xpath_validation_cache = nullptr;
+    }
+
 #ifdef HAVE_XALAN
     if (xalan_initialized) {
         XPathEvaluator::terminate();
@@ -110,6 +123,17 @@ static void validate_xpath_expression(const char* xpath_str) {
     }
 
     std::string xpath(xpath_str);
+
+    // Check cache first if caching is enabled
+    if (cache_xpath_validation) {
+        std::lock_guard<std::mutex> lock(xpath_cache_mutex);
+        if (!xpath_validation_cache) {
+            xpath_validation_cache = new std::unordered_set<std::string>();
+        }
+        if (xpath_validation_cache->find(xpath) != xpath_validation_cache->end()) {
+            return; // Already validated
+        }
+    }
     size_t len = xpath.length();
 
     // Check for excessively long XPath expressions (potential DoS)
@@ -222,6 +246,14 @@ static void validate_xpath_expression(const char* xpath_str) {
     for (const auto& pattern : injection_patterns) {
         if (xpath_lower.find(pattern) != std::string::npos) {
             rb_raise(rb_eArgError, "XPath expression contains suspicious injection pattern");
+        }
+    }
+
+    // Add to cache if caching is enabled
+    if (cache_xpath_validation) {
+        std::lock_guard<std::mutex> lock(xpath_cache_mutex);
+        if (xpath_validation_cache && xpath_validation_cache->size() < xpath_cache_max_size) {
+            xpath_validation_cache->insert(xpath);
         }
     }
 }
@@ -2726,8 +2758,69 @@ static VALUE document_validate(VALUE self, VALUE rb_schema) {
     }
 
     return Qnil;
-}extern "C" void Init_rxerces(void) {
+}
+
+// RXerces.cache_xpath_validation? - check if XPath validation caching is enabled
+static VALUE rxerces_cache_xpath_validation_p(VALUE self) {
+    return cache_xpath_validation ? Qtrue : Qfalse;
+}
+
+// RXerces.cache_xpath_validation = bool - enable/disable XPath validation caching
+static VALUE rxerces_set_cache_xpath_validation(VALUE self, VALUE val) {
+    cache_xpath_validation = RTEST(val);
+    return val;
+}
+
+// RXerces.clear_xpath_validation_cache - clear the XPath validation cache
+static VALUE rxerces_clear_xpath_validation_cache(VALUE self) {
+    std::lock_guard<std::mutex> lock(xpath_cache_mutex);
+    if (xpath_validation_cache) {
+        xpath_validation_cache->clear();
+    }
+    return Qnil;
+}
+
+// RXerces.xpath_validation_cache_size - return number of cached expressions
+static VALUE rxerces_xpath_validation_cache_size(VALUE self) {
+    std::lock_guard<std::mutex> lock(xpath_cache_mutex);
+    if (!xpath_validation_cache) {
+        return LONG2NUM(0);
+    }
+    return LONG2NUM((long)xpath_validation_cache->size());
+}
+
+// RXerces.xpath_validation_cache_max_size - get max cache size
+static VALUE rxerces_xpath_validation_cache_max_size(VALUE self) {
+    return LONG2NUM((long)xpath_cache_max_size);
+}
+
+// RXerces.xpath_validation_cache_max_size = n - set max cache size
+static VALUE rxerces_set_xpath_validation_cache_max_size(VALUE self, VALUE val) {
+    xpath_cache_max_size = NUM2LONG(val);
+    return val;
+}
+
+// RXerces.xalan_enabled? - check if Xalan is available
+static VALUE rxerces_xalan_enabled_p(VALUE self) {
+#ifdef HAVE_XALAN
+    return Qtrue;
+#else
+    return Qfalse;
+#endif
+}
+
+extern "C" void Init_rxerces(void) {
     rb_mRXerces = rb_define_module("RXerces");
+
+    // Module-level configuration methods for XPath validation caching
+    rb_define_singleton_method(rb_mRXerces, "cache_xpath_validation?", RUBY_METHOD_FUNC(rxerces_cache_xpath_validation_p), 0);
+    rb_define_singleton_method(rb_mRXerces, "cache_xpath_validation=", RUBY_METHOD_FUNC(rxerces_set_cache_xpath_validation), 1);
+    rb_define_singleton_method(rb_mRXerces, "clear_xpath_validation_cache", RUBY_METHOD_FUNC(rxerces_clear_xpath_validation_cache), 0);
+    rb_define_singleton_method(rb_mRXerces, "xpath_validation_cache_size", RUBY_METHOD_FUNC(rxerces_xpath_validation_cache_size), 0);
+    rb_define_singleton_method(rb_mRXerces, "xpath_validation_cache_max_size", RUBY_METHOD_FUNC(rxerces_xpath_validation_cache_max_size), 0);
+    rb_define_singleton_method(rb_mRXerces, "xpath_validation_cache_max_size=", RUBY_METHOD_FUNC(rxerces_set_xpath_validation_cache_max_size), 1);
+    rb_define_singleton_method(rb_mRXerces, "xalan_enabled?", RUBY_METHOD_FUNC(rxerces_xalan_enabled_p), 0);
+
     rb_mXML = rb_define_module_under(rb_mRXerces, "XML");
 
     rb_cDocument = rb_define_class_under(rb_mXML, "Document", rb_cObject);
