@@ -16,7 +16,8 @@
 #include <sstream>
 #include <vector>
 #include <mutex>
-#include <unordered_set>
+#include <list>
+#include <unordered_map>
 
 #ifdef HAVE_XALAN
 #include <xalanc/XPath/XPathEvaluator.hpp>
@@ -57,8 +58,11 @@ static bool xalan_initialized = false;
 #endif
 static std::mutex init_mutex;
 
-// XPath validation cache
-static std::unordered_set<std::string>* xpath_validation_cache = nullptr;
+// XPath validation cache with LRU eviction
+// Uses a list for LRU ordering (front = most recently used)
+// and a map for O(1) lookup of list iterators
+static std::list<std::string>* xpath_cache_lru_list = nullptr;
+static std::unordered_map<std::string, std::list<std::string>::iterator>* xpath_cache_map = nullptr;
 static std::mutex xpath_cache_mutex;
 static bool cache_xpath_validation = true;  // Default: enabled
 static size_t xpath_cache_max_size = 10000; // Max cached expressions
@@ -98,10 +102,14 @@ static void ensure_xerces_initialized() {
 
 // Cleanup function called at exit
 static void cleanup_xerces() {
-    // Clean up XPath validation cache
-    if (xpath_validation_cache) {
-        delete xpath_validation_cache;
-        xpath_validation_cache = nullptr;
+    // Clean up XPath validation cache (LRU)
+    if (xpath_cache_lru_list) {
+        delete xpath_cache_lru_list;
+        xpath_cache_lru_list = nullptr;
+    }
+    if (xpath_cache_map) {
+        delete xpath_cache_map;
+        xpath_cache_map = nullptr;
     }
 
 #ifdef HAVE_XALAN
@@ -124,13 +132,19 @@ static void validate_xpath_expression(const char* xpath_str) {
 
     std::string xpath(xpath_str);
 
-    // Check cache first if caching is enabled
+    // Check cache first if caching is enabled (LRU cache)
     if (cache_xpath_validation) {
         std::lock_guard<std::mutex> lock(xpath_cache_mutex);
-        if (!xpath_validation_cache) {
-            xpath_validation_cache = new std::unordered_set<std::string>();
+        if (!xpath_cache_lru_list) {
+            xpath_cache_lru_list = new std::list<std::string>();
         }
-        if (xpath_validation_cache->find(xpath) != xpath_validation_cache->end()) {
+        if (!xpath_cache_map) {
+            xpath_cache_map = new std::unordered_map<std::string, std::list<std::string>::iterator>();
+        }
+        auto it = xpath_cache_map->find(xpath);
+        if (it != xpath_cache_map->end()) {
+            // Cache hit: move to front (most recently used)
+            xpath_cache_lru_list->splice(xpath_cache_lru_list->begin(), *xpath_cache_lru_list, it->second);
             return; // Already validated
         }
     }
@@ -252,11 +266,21 @@ static void validate_xpath_expression(const char* xpath_str) {
         }
     }
 
-    // Add to cache if caching is enabled
+    // Add to cache if caching is enabled (LRU eviction)
     if (cache_xpath_validation) {
         std::lock_guard<std::mutex> lock(xpath_cache_mutex);
-        if (xpath_validation_cache && xpath_validation_cache->size() < xpath_cache_max_size) {
-            xpath_validation_cache->insert(xpath);
+        if (xpath_cache_lru_list && xpath_cache_map) {
+            // If cache is full, evict least recently used (back of list)
+            if (xpath_cache_max_size > 0 && xpath_cache_map->size() >= xpath_cache_max_size) {
+                std::string& lru = xpath_cache_lru_list->back();
+                xpath_cache_map->erase(lru);
+                xpath_cache_lru_list->pop_back();
+            }
+            // Add new entry to front (most recently used)
+            if (xpath_cache_max_size > 0) {
+                xpath_cache_lru_list->push_front(xpath);
+                (*xpath_cache_map)[xpath] = xpath_cache_lru_list->begin();
+            }
         }
     }
 }
@@ -2782,8 +2806,11 @@ static VALUE rxerces_set_cache_xpath_validation(VALUE self, VALUE val) {
 // RXerces.clear_xpath_validation_cache - clear the XPath validation cache
 static VALUE rxerces_clear_xpath_validation_cache(VALUE self) {
     std::lock_guard<std::mutex> lock(xpath_cache_mutex);
-    if (xpath_validation_cache) {
-        xpath_validation_cache->clear();
+    if (xpath_cache_lru_list) {
+        xpath_cache_lru_list->clear();
+    }
+    if (xpath_cache_map) {
+        xpath_cache_map->clear();
     }
     return Qnil;
 }
@@ -2791,10 +2818,10 @@ static VALUE rxerces_clear_xpath_validation_cache(VALUE self) {
 // RXerces.xpath_validation_cache_size - return number of cached expressions
 static VALUE rxerces_xpath_validation_cache_size(VALUE self) {
     std::lock_guard<std::mutex> lock(xpath_cache_mutex);
-    if (!xpath_validation_cache) {
+    if (!xpath_cache_map) {
         return LONG2NUM(0);
     }
-    return LONG2NUM((long)xpath_validation_cache->size());
+    return LONG2NUM((long)xpath_cache_map->size());
 }
 
 // RXerces.xpath_validation_cache_max_size - get max cache size
