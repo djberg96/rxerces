@@ -1,3 +1,20 @@
+## 0.7.0 - 3-Jan-2026
+* Added XPath validation to prevent XPath injection attacks, with checks for
+  unbalanced quotes, dangerous functions, encoded characters, and injection patterns.
+* Added XPath validation caching with LRU eviction for better performance.
+* Added configuration API for XPath validation caching.
+* Added configurable XPath expression maximum length.
+* Added RXerces.xalan_enabled? method to check Xalan availability.
+* Added Node#attribute_nodes method to get attribute nodes as an array.
+* Improved thread safety with mutex protection for Xerces/Xalan initialization.
+* Added XXE (XML External Entity) protection, disabled by default.
+* Improved exception handling with more specific error messages.
+* Fixed UTF-8 truncation issues in NodeSet#inspect.
+* Nodes are now automatically imported when adding children from different documents.
+* Added validation for Document.parse options hash.
+* Improved wrap_node function robustness.
+* Now uses mkmf-lite to check for Xalan installation.
+
 ## 0.6.1 - 20-Dec-2025
 * Added more Nokogiri compatibility methods: children, first_element_child,
   last_element_child, elements, at_xpath.
