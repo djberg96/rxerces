@@ -12,6 +12,7 @@ CLEAN.include(
   '**/*.lock',              # Gemfile.lock
   '**/Makefile',            # C Makefile
   '**/*.dSYM',              # OS X build directory
+  'tmp/',                   # AI probably uses this
   "**/*.#{CONFIG['DLEXT']}" # C shared object
 )
 
