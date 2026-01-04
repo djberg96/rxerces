@@ -15,6 +15,7 @@
 #include <xercesc/sax/SAXException.hpp>
 #include <sstream>
 #include <vector>
+#include <memory>
 #include <mutex>
 #include <list>
 #include <unordered_map>
@@ -649,10 +650,14 @@ static void validate_parse_options(VALUE options) {
 
     Check_Type(options, T_HASH);
 
-    // Define allowed option keys
-    std::vector<const char*> allowed_keys = {
-        "allow_external_entities"
-    };
+    // Skip work quickly when the hash is empty
+    if (RHASH_EMPTY_P(options)) {
+        return;
+    }
+
+    // Allowed option keys
+    static const char* allowed_keys[] = {"allow_external_entities", "fast_parse"};
+    static const size_t allowed_key_count = sizeof(allowed_keys) / sizeof(allowed_keys[0]);
 
     // Get all keys from the provided options hash
     VALUE keys = rb_funcall(options, rb_intern("keys"), 0);
@@ -674,16 +679,15 @@ static void validate_parse_options(VALUE options) {
 
         const char* key_cstr = StringValueCStr(key_str);
         bool found = false;
-
-        for (const auto& allowed : allowed_keys) {
-            if (strcmp(key_cstr, allowed) == 0) {
+        for (size_t j = 0; j < allowed_key_count; j++) {
+            if (strcmp(key_cstr, allowed_keys[j]) == 0) {
                 found = true;
                 break;
             }
         }
 
         if (!found) {
-            rb_raise(rb_eArgError, "Unknown option: %s. Allowed options are: allow_external_entities", key_cstr);
+            rb_raise(rb_eArgError, "Unknown option: %s. Allowed options are: allow_external_entities, fast_parse", key_cstr);
         }
     }
 }
@@ -694,21 +698,30 @@ static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
 
     ensure_xerces_initialized();
 
-    Check_Type(str, T_STRING);
-    const char* xml_str = StringValueCStr(str);
+    // Coerce to a Ruby string and fetch pointer/length without extra strlen() work
+    StringValue(str);
+    const char* xml_str = RSTRING_PTR(str);
+    const XMLSize_t xml_len = static_cast<XMLSize_t>(RSTRING_LEN(str));
 
     // Validate options hash before processing
     validate_parse_options(options);
 
-    XercesDOMParser* parser = new XercesDOMParser();
+    std::unique_ptr<XercesDOMParser> parser(new XercesDOMParser());
 
-    // Check if external entities should be allowed (default: false for security)
+    // Parse options (all default to safe/compat mode)
     bool allow_external = false;
+    bool fast_parse = false;
     if (!NIL_P(options)) {
         VALUE allow_key = rb_intern("allow_external_entities");
         VALUE allow_val = rb_hash_aref(options, ID2SYM(allow_key));
         if (RTEST(allow_val)) {
             allow_external = true;
+        }
+
+        VALUE fast_key = rb_intern("fast_parse");
+        VALUE fast_val = rb_hash_aref(options, ID2SYM(fast_key));
+        if (RTEST(fast_val)) {
+            fast_parse = true;
         }
     }
 
@@ -722,25 +735,44 @@ static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
         parser->setDisableDefaultEntityResolution(true);
     }
 
+    // Feature toggles (adjusted if fast_parse is true)
+    bool do_namespaces = true;
+    bool include_whitespace = true;
+    bool create_comment_nodes = true;
+    bool create_entity_ref_nodes = true;
+
+    if (fast_parse) {
+        // Opt-in speed tradeoffs: drop namespace processing and avoid
+        // building comment/entity-ref/whitespace nodes.
+        do_namespaces = false;
+        include_whitespace = false;
+        create_comment_nodes = false;
+        create_entity_ref_nodes = false;
+    }
+
     parser->setValidationScheme(XercesDOMParser::Val_Never);
-    parser->setDoNamespaces(true);
+    parser->setDoNamespaces(do_namespaces);
     parser->setDoSchema(false);
+    parser->setIncludeIgnorableWhitespace(include_whitespace);
+    parser->setCreateCommentNodes(create_comment_nodes);
+    parser->setCreateEntityReferenceNodes(create_entity_ref_nodes);
 
     // Set up error handler to capture parse errors
-    std::vector<std::string>* parse_errors = new std::vector<std::string>();
-    ParseErrorHandler error_handler(parse_errors);
+    std::unique_ptr<std::vector<std::string>> parse_errors(new std::vector<std::string>());
+    std::vector<std::string>* parse_errors_ptr = parse_errors.get();
+    ParseErrorHandler error_handler(parse_errors_ptr);
     parser->setErrorHandler(&error_handler);
 
     try {
-        MemBufInputSource input((const XMLByte*)xml_str, strlen(xml_str), "memory");
+        MemBufInputSource input(reinterpret_cast<const XMLByte*>(xml_str), xml_len, "memory");
         parser->parse(input);
 
         DOMDocument* doc = parser->getDocument();
 
         DocumentWrapper* wrapper = ALLOC(DocumentWrapper);
         wrapper->doc = doc;
-        wrapper->parser = parser;
-        wrapper->parse_errors = parse_errors;
+        wrapper->parser = parser.release();
+        wrapper->parse_errors = parse_errors.release();
 #ifdef HAVE_XALAN
         wrapper->xalan_context = nullptr;  // Lazily initialized on first XPath query
         wrapper->xpath_cache_list = nullptr;
@@ -750,9 +782,9 @@ static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
         VALUE rb_doc = TypedData_Wrap_Struct(rb_cDocument, &document_type, wrapper);
 
         // If there were fatal errors, raise an exception with details
-        if (error_handler.has_fatal && !parse_errors->empty()) {
+        if (error_handler.has_fatal && parse_errors_ptr && !parse_errors_ptr->empty()) {
             std::string all_errors;
-            for (const auto& err : *parse_errors) {
+            for (const auto& err : *parse_errors_ptr) {
                 if (!all_errors.empty()) all_errors += "\n";
                 all_errors += err;
             }
@@ -762,17 +794,11 @@ static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
         return rb_doc;
     } catch (const XMLException& e) {
         CharStr message(e.getMessage());
-        delete parse_errors;
-        delete parser;
         rb_raise(rb_eRuntimeError, "XML parsing error: %s", message.localForm());
     } catch (const DOMException& e) {
         CharStr message(e.getMessage());
-        delete parse_errors;
-        delete parser;
         rb_raise(rb_eRuntimeError, "DOM error: %s", message.localForm());
     } catch (...) {
-        delete parse_errors;
-        delete parser;
         rb_raise(rb_eRuntimeError, "Unknown XML parsing error");
     }
 

@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'benchmark/ips'
+$LOAD_PATH.unshift(File.expand_path('../lib', __dir__))
 require 'rxerces'
 
 # Try to load Nokogiri and Ox
@@ -61,6 +62,7 @@ Benchmark.ips do |x|
   x.config(time: 5, warmup: 2)
 
   x.report("rxerces") { RXerces::XML::Document.parse(SMALL_XML) }
+  x.report("rxerces (fast)") { RXerces::XML::Document.parse(SMALL_XML, fast_parse: true) }
   x.report("nokogiri") { Nokogiri::XML(SMALL_XML) } if NOKOGIRI_AVAILABLE
   x.report("ox") { Ox.parse(SMALL_XML) } if OX_AVAILABLE
 
@@ -77,6 +79,7 @@ Benchmark.ips do |x|
   x.config(time: 5, warmup: 2)
 
   x.report("rxerces") { RXerces::XML::Document.parse(MEDIUM_XML) }
+  x.report("rxerces (fast)") { RXerces::XML::Document.parse(MEDIUM_XML, fast_parse: true) }
   x.report("nokogiri") { Nokogiri::XML(MEDIUM_XML) } if NOKOGIRI_AVAILABLE
   x.report("ox") { Ox.parse(MEDIUM_XML) } if OX_AVAILABLE
 
@@ -93,6 +96,7 @@ Benchmark.ips do |x|
   x.config(time: 5, warmup: 2)
 
   x.report("rxerces") { RXerces::XML::Document.parse(LARGE_XML) }
+  x.report("rxerces (fast)") { RXerces::XML::Document.parse(LARGE_XML, fast_parse: true) }
   x.report("nokogiri") { Nokogiri::XML(LARGE_XML) } if NOKOGIRI_AVAILABLE
   x.report("ox") { Ox.parse(LARGE_XML) } if OX_AVAILABLE
 
