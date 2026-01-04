@@ -68,6 +68,53 @@ static bool cache_xpath_validation = true;  // Default: enabled
 static size_t xpath_cache_max_size = 10000; // Max cached expressions
 static size_t xpath_max_length = 10000;     // Max XPath expression length
 
+#ifdef HAVE_XALAN
+// Cached Xalan context per document for XPath performance
+// This avoids recreating expensive Xalan infrastructure on every XPath query
+struct XalanContext {
+    XercesParserLiaison* liaison;
+    XercesDOMSupport* domSupport;
+    XalanDocument* xalanDoc;
+    XercesDocumentWrapper* docWrapper;
+    XPathEnvSupportDefault* envSupport;
+    XObjectFactoryDefault* objectFactory;
+    XPathExecutionContextDefault* executionContext;
+    XPathConstructionContextDefault* constructionContext;
+    XPathFactoryDefault* factory;
+    XPathProcessorImpl* processor;
+
+    XalanContext() : liaison(nullptr), domSupport(nullptr), xalanDoc(nullptr),
+                     docWrapper(nullptr), envSupport(nullptr), objectFactory(nullptr),
+                     executionContext(nullptr), constructionContext(nullptr),
+                     factory(nullptr), processor(nullptr) {}
+
+    ~XalanContext() {
+        // Clean up in reverse order of creation
+        delete executionContext;
+        delete constructionContext;
+        delete objectFactory;
+        delete envSupport;
+        delete factory;
+        delete processor;
+        // domSupport must be deleted before liaison
+        delete domSupport;
+        // liaison owns xalanDoc/docWrapper, so don't delete them separately
+        delete liaison;
+    }
+};
+
+// Compiled XPath expression cache per document
+struct CompiledXPath {
+    XPath* xpath;
+    std::string expression;
+
+    CompiledXPath(XPath* x, const std::string& expr) : xpath(x), expression(expr) {}
+};
+
+// LRU cache for compiled XPath expressions
+static const size_t XPATH_COMPILE_CACHE_SIZE = 100;
+#endif
+
 // Forward declarations
 static std::string css_to_xpath(const char* css);
 static VALUE node_css(VALUE self, VALUE selector);
@@ -333,6 +380,11 @@ typedef struct {
     DOMDocument* doc;
     XercesDOMParser* parser;
     std::vector<std::string>* parse_errors;
+#ifdef HAVE_XALAN
+    XalanContext* xalan_context;  // Cached Xalan context for XPath performance
+    std::list<CompiledXPath*>* xpath_cache_list;  // LRU list of compiled expressions
+    std::unordered_map<std::string, std::list<CompiledXPath*>::iterator>* xpath_cache_map;
+#endif
 } DocumentWrapper;
 
 // Wrapper structure for DOMNode
@@ -447,6 +499,25 @@ public:
 static void document_free(void* ptr) {
     DocumentWrapper* wrapper = (DocumentWrapper*)ptr;
     if (wrapper) {
+#ifdef HAVE_XALAN
+        // Clean up XPath cache first
+        if (wrapper->xpath_cache_list) {
+            for (auto& compiled : *wrapper->xpath_cache_list) {
+                if (compiled && compiled->xpath && wrapper->xalan_context && wrapper->xalan_context->factory) {
+                    wrapper->xalan_context->factory->returnObject(compiled->xpath);
+                }
+                delete compiled;
+            }
+            delete wrapper->xpath_cache_list;
+        }
+        if (wrapper->xpath_cache_map) {
+            delete wrapper->xpath_cache_map;
+        }
+        // Clean up Xalan context
+        if (wrapper->xalan_context) {
+            delete wrapper->xalan_context;
+        }
+#endif
         if (wrapper->parser) {
             delete wrapper->parser;
         }
@@ -670,6 +741,11 @@ static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
         wrapper->doc = doc;
         wrapper->parser = parser;
         wrapper->parse_errors = parse_errors;
+#ifdef HAVE_XALAN
+        wrapper->xalan_context = nullptr;  // Lazily initialized on first XPath query
+        wrapper->xpath_cache_list = nullptr;
+        wrapper->xpath_cache_map = nullptr;
+#endif
 
         VALUE rb_doc = TypedData_Wrap_Struct(rb_cDocument, &document_type, wrapper);
 
@@ -890,14 +966,15 @@ static VALUE document_children(VALUE self) {
     DocumentWrapper* wrapper;
     TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
 
-    VALUE children = rb_ary_new();
-
     if (!wrapper->doc) {
-        return children;
+        return rb_ary_new();
     }
 
     DOMNodeList* child_nodes = wrapper->doc->getChildNodes();
     XMLSize_t count = child_nodes->getLength();
+
+    // Pre-size array for better performance
+    VALUE children = rb_ary_new_capa((long)count);
 
     for (XMLSize_t i = 0; i < count; i++) {
         DOMNode* child = child_nodes->item(i);
@@ -912,14 +989,15 @@ static VALUE document_element_children(VALUE self) {
     DocumentWrapper* wrapper;
     TypedData_Get_Struct(self, DocumentWrapper, &document_type, wrapper);
 
-    VALUE children = rb_ary_new();
-
     if (!wrapper->doc) {
-        return children;
+        return rb_ary_new();
     }
 
     DOMNodeList* child_nodes = wrapper->doc->getChildNodes();
     XMLSize_t count = child_nodes->getLength();
+
+    // Pre-size array (may be smaller than count, but good estimate)
+    VALUE children = rb_ary_new_capa((long)count);
 
     for (XMLSize_t i = 0; i < count; i++) {
         DOMNode* child = child_nodes->item(i);
@@ -977,7 +1055,90 @@ static VALUE document_last_element_child(VALUE self) {
 }
 
 #ifdef HAVE_XALAN
+// Helper to initialize or get cached Xalan context for a document
+static XalanContext* get_or_create_xalan_context(DocumentWrapper* doc_wrapper) {
+    if (doc_wrapper->xalan_context) {
+        return doc_wrapper->xalan_context;
+    }
+
+    // Create new context
+    XalanContext* ctx = new XalanContext();
+
+    try {
+        ctx->liaison = new XercesParserLiaison();
+        ctx->domSupport = new XercesDOMSupport(*ctx->liaison);
+
+        // Create Xalan document wrapper - this is owned by liaison
+        ctx->xalanDoc = ctx->liaison->createDocument(doc_wrapper->doc, false, false, false);
+        if (!ctx->xalanDoc) {
+            delete ctx;
+            return nullptr;
+        }
+        ctx->docWrapper = static_cast<XercesDocumentWrapper*>(ctx->xalanDoc);
+
+        // Create XPath infrastructure
+        ctx->envSupport = new XPathEnvSupportDefault();
+        ctx->objectFactory = new XObjectFactoryDefault();
+        ctx->executionContext = new XPathExecutionContextDefault(*ctx->envSupport, *ctx->domSupport, *ctx->objectFactory);
+        ctx->constructionContext = new XPathConstructionContextDefault();
+        ctx->factory = new XPathFactoryDefault();
+        ctx->processor = new XPathProcessorImpl();
+
+        doc_wrapper->xalan_context = ctx;
+
+        // Initialize XPath expression cache
+        doc_wrapper->xpath_cache_list = new std::list<CompiledXPath*>();
+        doc_wrapper->xpath_cache_map = new std::unordered_map<std::string, std::list<CompiledXPath*>::iterator>();
+
+        return ctx;
+    } catch (...) {
+        delete ctx;
+        return nullptr;
+    }
+}
+
+// Get or compile XPath expression with LRU caching
+static XPath* get_or_compile_xpath(DocumentWrapper* doc_wrapper, XalanContext* ctx, const char* xpath_str) {
+    std::string expr(xpath_str);
+
+    // Check cache
+    auto it = doc_wrapper->xpath_cache_map->find(expr);
+    if (it != doc_wrapper->xpath_cache_map->end()) {
+        // Cache hit - move to front (most recently used)
+        CompiledXPath* compiled = *(it->second);
+        doc_wrapper->xpath_cache_list->erase(it->second);
+        doc_wrapper->xpath_cache_list->push_front(compiled);
+        (*doc_wrapper->xpath_cache_map)[expr] = doc_wrapper->xpath_cache_list->begin();
+        return compiled->xpath;
+    }
+
+    // Cache miss - compile new XPath
+    XPath* xpath = ctx->factory->create();
+
+    // Get document element for resolver (can be null, that's ok)
+    XalanElement* docElem = ctx->docWrapper->getDocumentElement();
+    ElementPrefixResolverProxy resolver(docElem, *ctx->envSupport, *ctx->domSupport);
+    ctx->processor->initXPath(*xpath, *ctx->constructionContext, XalanDOMString(xpath_str), resolver);
+
+    // Add to cache
+    CompiledXPath* compiled = new CompiledXPath(xpath, expr);
+    doc_wrapper->xpath_cache_list->push_front(compiled);
+    (*doc_wrapper->xpath_cache_map)[expr] = doc_wrapper->xpath_cache_list->begin();
+
+    // Evict if cache is too large
+    if (doc_wrapper->xpath_cache_list->size() > XPATH_COMPILE_CACHE_SIZE) {
+        CompiledXPath* lru = doc_wrapper->xpath_cache_list->back();
+        doc_wrapper->xpath_cache_map->erase(lru->expression);
+        ctx->factory->returnObject(lru->xpath);
+        delete lru;
+        doc_wrapper->xpath_cache_list->pop_back();
+    }
+
+    return xpath;
+}
+
 // Helper function to execute XPath using Xalan for full XPath 1.0 support
+// Uses cached Xalan context and compiled XPath expressions for performance
 static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_str, VALUE doc_ref) {
     // Validate XPath expression before execution
     validate_xpath_expression(xpath_str);
@@ -985,54 +1146,41 @@ static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_s
     ensure_xerces_initialized();
 
     try {
-        // Get the document
-        DOMDocument* domDoc = context_node->getOwnerDocument();
-        if (!domDoc && context_node->getNodeType() == DOMNode::DOCUMENT_NODE) {
-            domDoc = static_cast<DOMDocument*>(context_node);
-        }
+        // Get the document wrapper
+        DocumentWrapper* doc_wrapper;
+        TypedData_Get_Struct(doc_ref, DocumentWrapper, &document_type, doc_wrapper);
 
+        DOMDocument* domDoc = doc_wrapper->doc;
         if (!domDoc) {
             NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
             wrapper->nodes_array = rb_ary_new();
             return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
         }
 
-        // Create Xalan support objects
-        XercesParserLiaison liaison;
-        XercesDOMSupport domSupport(liaison);
-
-        // Create Xalan document - this creates and returns a XercesDocumentWrapper
-        XalanDocument* xalanDoc = liaison.createDocument(domDoc, false, false, false);
-        if (!xalanDoc) {
-            rb_raise(rb_eRuntimeError, "Failed to create Xalan document wrapper");
+        // Get or create cached Xalan context
+        XalanContext* ctx = get_or_create_xalan_context(doc_wrapper);
+        if (!ctx) {
+            rb_raise(rb_eRuntimeError, "Failed to create Xalan context");
         }
-
-        // The document IS the wrapper
-        XercesDocumentWrapper* docWrapper = static_cast<XercesDocumentWrapper*>(xalanDoc);
 
         // Map the context node to Xalan
-        XalanNode* xalanContextNode = docWrapper->mapNode(context_node);
+        XalanNode* xalanContextNode = ctx->docWrapper->mapNode(context_node);
         if (!xalanContextNode) {
-            xalanContextNode = docWrapper;
+            xalanContextNode = ctx->docWrapper;
         }
 
-        // Set up XPath factories and contexts
-        XPathEnvSupportDefault envSupport;
-        XObjectFactoryDefault objectFactory;
-        XPathExecutionContextDefault executionContext(envSupport, domSupport, objectFactory);
-        XPathConstructionContextDefault constructionContext;
-        XPathFactoryDefault factory;
+        // Get or compile XPath expression (cached)
+        XPath* xpath = get_or_compile_xpath(doc_wrapper, ctx, xpath_str);
 
-        // Create XPath
-        XPathProcessorImpl processor;
-        XPath* xpath = factory.create();
+        // Create resolver for execution
+        XalanElement* docElem = ctx->docWrapper->getDocumentElement();
+        ElementPrefixResolverProxy resolver(docElem, *ctx->envSupport, *ctx->domSupport);
 
-        // Compile XPath expression
-        ElementPrefixResolverProxy resolver(docWrapper->getDocumentElement(), envSupport, domSupport);
-        processor.initXPath(*xpath, constructionContext, XalanDOMString(xpath_str), resolver);
+        // Reset execution context for clean state
+        ctx->objectFactory->reset();
 
         // Execute XPath query
-        const XObjectPtr result = xpath->execute(xalanContextNode, resolver, executionContext);
+        const XObjectPtr result = xpath->execute(xalanContextNode, resolver, *ctx->executionContext);
 
         VALUE nodes_array = rb_ary_new();
 
@@ -1045,7 +1193,7 @@ static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_s
                 XalanNode* xalanNode = nodeList.item(i);
                 if (xalanNode) {
                     // Map back to Xerces DOM node
-                    const DOMNode* domNode = docWrapper->mapNode(xalanNode);
+                    const DOMNode* domNode = ctx->docWrapper->mapNode(xalanNode);
                     if (domNode) {
                         rb_ary_push(nodes_array, wrap_node(const_cast<DOMNode*>(domNode), doc_ref));
                     }
@@ -1053,7 +1201,7 @@ static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_s
             }
         }
 
-        factory.returnObject(xpath);
+        // Don't return xpath to factory - it's cached!
 
         NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
         wrapper->nodes_array = nodes_array;
@@ -1072,6 +1220,79 @@ static VALUE execute_xpath_with_xalan(DOMNode* context_node, const char* xpath_s
     NodeSetWrapper* wrapper = ALLOC(NodeSetWrapper);
     wrapper->nodes_array = rb_ary_new();
     return TypedData_Wrap_Struct(rb_cNodeSet, &nodeset_type, wrapper);
+}
+
+// Optimized version that only returns the first matching node (for at_xpath)
+// Avoids creating Ruby wrappers for all nodes when we only need one
+static VALUE execute_xpath_with_xalan_first(DOMNode* context_node, const char* xpath_str, VALUE doc_ref) {
+    // Validate XPath expression before execution
+    validate_xpath_expression(xpath_str);
+
+    ensure_xerces_initialized();
+
+    try {
+        // Get the document wrapper
+        DocumentWrapper* doc_wrapper;
+        TypedData_Get_Struct(doc_ref, DocumentWrapper, &document_type, doc_wrapper);
+
+        DOMDocument* domDoc = doc_wrapper->doc;
+        if (!domDoc) {
+            return Qnil;
+        }
+
+        // Get or create cached Xalan context
+        XalanContext* ctx = get_or_create_xalan_context(doc_wrapper);
+        if (!ctx) {
+            rb_raise(rb_eRuntimeError, "Failed to create Xalan context");
+        }
+
+        // Map the context node to Xalan
+        XalanNode* xalanContextNode = ctx->docWrapper->mapNode(context_node);
+        if (!xalanContextNode) {
+            xalanContextNode = ctx->docWrapper;
+        }
+
+        // Get or compile XPath expression (cached)
+        XPath* xpath = get_or_compile_xpath(doc_wrapper, ctx, xpath_str);
+
+        // Create resolver for execution
+        XalanElement* docElem = ctx->docWrapper->getDocumentElement();
+        ElementPrefixResolverProxy resolver(docElem, *ctx->envSupport, *ctx->domSupport);
+
+        // Reset execution context for clean state
+        ctx->objectFactory->reset();
+
+        // Execute XPath query
+        const XObjectPtr result = xpath->execute(xalanContextNode, resolver, *ctx->executionContext);
+
+        if (result.get() != 0) {
+            // Check if result is a node set
+            const NodeRefListBase& nodeList = result->nodeset();
+            if (nodeList.getLength() > 0) {
+                XalanNode* xalanNode = nodeList.item(0);
+                if (xalanNode) {
+                    // Map back to Xerces DOM node - only wrap the first one!
+                    const DOMNode* domNode = ctx->docWrapper->mapNode(xalanNode);
+                    if (domNode) {
+                        return wrap_node(const_cast<DOMNode*>(domNode), doc_ref);
+                    }
+                }
+            }
+        }
+
+        return Qnil;
+
+    } catch (const XalanXPathException& e) {
+        CharStr msg(e.getMessage().c_str());
+        rb_raise(rb_eRuntimeError, "XPath error: %s", msg.localForm());
+    } catch (const XMLException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "XML error: %s", message.localForm());
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Unknown XPath error");
+    }
+
+    return Qnil;
 }
 #endif
 
@@ -1158,6 +1379,28 @@ static VALUE document_xpath(VALUE self, VALUE path) {
 
 // document.at_xpath(path) - returns first matching node or nil
 static VALUE document_at_xpath(VALUE self, VALUE path) {
+    DocumentWrapper* doc_wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, doc_wrapper);
+
+    if (!doc_wrapper->doc) {
+        return Qnil;
+    }
+
+    Check_Type(path, T_STRING);
+    const char* xpath_str = StringValueCStr(path);
+
+    // Validate XPath expression before execution
+    validate_xpath_expression(xpath_str);
+
+#ifdef HAVE_XALAN
+    // Use optimized first-only version
+    DOMElement* root = doc_wrapper->doc->getDocumentElement();
+    if (!root) {
+        return Qnil;
+    }
+    return execute_xpath_with_xalan_first(root, xpath_str, self);
+#else
+    // Fall back to getting all results and returning first
     VALUE nodeset = document_xpath(self, path);
     NodeSetWrapper* wrapper;
     TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
@@ -1167,6 +1410,7 @@ static VALUE document_at_xpath(VALUE self, VALUE path) {
     }
 
     return rb_ary_entry(wrapper->nodes_array, 0);
+#endif
 }
 
 // document.css(selector) - Convert CSS to XPath and execute
@@ -1183,6 +1427,27 @@ static VALUE document_css(VALUE self, VALUE selector) {
 
 // document.at_css(selector) - Returns first matching node
 static VALUE document_at_css(VALUE self, VALUE selector) {
+    Check_Type(selector, T_STRING);
+    const char* css_str = StringValueCStr(selector);
+
+    // Convert CSS to XPath
+    std::string xpath_str = css_to_xpath(css_str);
+
+#ifdef HAVE_XALAN
+    DocumentWrapper* doc_wrapper;
+    TypedData_Get_Struct(self, DocumentWrapper, &document_type, doc_wrapper);
+
+    if (!doc_wrapper->doc) {
+        return Qnil;
+    }
+
+    // Use optimized first-only version
+    DOMElement* root = doc_wrapper->doc->getDocumentElement();
+    if (!root) {
+        return Qnil;
+    }
+    return execute_xpath_with_xalan_first(root, xpath_str.c_str(), self);
+#else
     VALUE nodeset = document_css(self, selector);
 
     NodeSetWrapper* wrapper;
@@ -1193,6 +1458,7 @@ static VALUE document_at_css(VALUE self, VALUE selector) {
     }
 
     return rb_ary_entry(wrapper->nodes_array, 0);
+#endif
 }
 
 // node.inspect - human-readable representation
@@ -1447,16 +1713,17 @@ static VALUE node_children(VALUE self) {
     NodeWrapper* wrapper;
     TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
 
-    VALUE children = rb_ary_new();
-
     if (!wrapper->node) {
-        return children;
+        return rb_ary_new();
     }
 
     VALUE doc_ref = wrapper->doc_ref;
 
     DOMNodeList* child_nodes = wrapper->node->getChildNodes();
     XMLSize_t count = child_nodes->getLength();
+
+    // Pre-size array for better performance
+    VALUE children = rb_ary_new_capa((long)count);
 
     for (XMLSize_t i = 0; i < count; i++) {
         DOMNode* child = child_nodes->item(i);
@@ -1471,15 +1738,16 @@ static VALUE node_element_children(VALUE self) {
     NodeWrapper* wrapper;
     TypedData_Get_Struct(self, NodeWrapper, &node_type, wrapper);
 
-    VALUE children = rb_ary_new();
-
     if (!wrapper->node) {
-        return children;
+        return rb_ary_new();
     }
 
     VALUE doc_ref = wrapper->doc_ref;
     DOMNodeList* child_nodes = wrapper->node->getChildNodes();
     XMLSize_t count = child_nodes->getLength();
+
+    // Pre-size array (may be smaller than count, but good estimate)
+    VALUE children = rb_ary_new_capa((long)count);
 
     for (XMLSize_t i = 0; i < count; i++) {
         DOMNode* child = child_nodes->item(i);
@@ -2143,6 +2411,25 @@ static VALUE node_xpath(VALUE self, VALUE path) {
 
 // node.at_xpath(path) - returns first matching node or nil
 static VALUE node_at_xpath(VALUE self, VALUE path) {
+    NodeWrapper* node_wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, node_wrapper);
+
+    if (!node_wrapper->node) {
+        return Qnil;
+    }
+
+    Check_Type(path, T_STRING);
+    const char* xpath_str = StringValueCStr(path);
+    VALUE doc_ref = node_wrapper->doc_ref;
+
+    // Validate XPath expression before execution
+    validate_xpath_expression(xpath_str);
+
+#ifdef HAVE_XALAN
+    // Use optimized first-only version
+    return execute_xpath_with_xalan_first(node_wrapper->node, xpath_str, doc_ref);
+#else
+    // Fall back to getting all results and returning first
     VALUE nodeset = node_xpath(self, path);
     NodeSetWrapper* wrapper;
     TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
@@ -2152,10 +2439,30 @@ static VALUE node_at_xpath(VALUE self, VALUE path) {
     }
 
     return rb_ary_entry(wrapper->nodes_array, 0);
+#endif
 }
 
 // node.at_css(selector) - returns first matching node or nil
 static VALUE node_at_css(VALUE self, VALUE selector) {
+    Check_Type(selector, T_STRING);
+    const char* css_str = StringValueCStr(selector);
+
+    // Convert CSS to XPath
+    std::string xpath_str = css_to_xpath(css_str);
+
+#ifdef HAVE_XALAN
+    NodeWrapper* node_wrapper;
+    TypedData_Get_Struct(self, NodeWrapper, &node_type, node_wrapper);
+
+    if (!node_wrapper->node) {
+        return Qnil;
+    }
+
+    VALUE doc_ref = node_wrapper->doc_ref;
+
+    // Use optimized first-only version
+    return execute_xpath_with_xalan_first(node_wrapper->node, xpath_str.c_str(), doc_ref);
+#else
     VALUE nodeset = node_css(self, selector);
     NodeSetWrapper* wrapper;
     TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
@@ -2165,6 +2472,7 @@ static VALUE node_at_css(VALUE self, VALUE selector) {
     }
 
     return rb_ary_entry(wrapper->nodes_array, 0);
+#endif
 }
 
 // Helper function to convert basic CSS selectors to XPath
