@@ -12,6 +12,11 @@ if RUBY_PLATFORM =~ /darwin/
   end
 end
 
+if RUBY_PLATFORM =~ /bsd/
+  $INCFLAGS << " -I/usr/local/include"
+  $LDFLAGS << " -L/usr/local/lib"
+end
+
 # Check for Xerces-C library
 unless have_library('xerces-c')
   puts "Xerces-C library not found. Please install it:"
