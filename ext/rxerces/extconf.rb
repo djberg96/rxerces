@@ -3,6 +3,12 @@ require 'mkmf'
 # Force C++ compiler for the extension
 $CXXFLAGS << " -std=c++11"
 
+# Some Ruby builds omit optflags from CXXFLAGS. Use Ruby's optimization flags
+# in that case, while preserving an explicit choice (including -O0).
+unless $CXXFLAGS.match?(/(?:\A|\s)-O\S*/)
+  $CXXFLAGS << " #{RbConfig::CONFIG['optflags']}"
+end
+
 # Try to find Xerces-C via homebrew on macOS
 if RUBY_PLATFORM =~ /darwin/
   homebrew_prefix = `brew --prefix xerces-c 2>/dev/null`.chomp

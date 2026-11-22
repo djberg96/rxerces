@@ -18,6 +18,7 @@
 #include <mutex>
 #include <list>
 #include <unordered_map>
+#include <memory>
 
 #ifdef HAVE_XALAN
 #include <xalanc/XPath/XPathEvaluator.hpp>
@@ -373,6 +374,13 @@ public:
 
 private:
     char* fLocalForm;
+};
+
+// DOM objects use release(), rather than delete, for cleanup.
+struct DOMRelease {
+    template <typename T> void operator()(T* object) const {
+        if (object) object->release();
+    }
 };
 
 // Wrapper structure for DOMDocument
@@ -732,7 +740,10 @@ static VALUE document_parse(int argc, VALUE* argv, VALUE klass) {
     parser->setErrorHandler(&error_handler);
 
     try {
-        MemBufInputSource input((const XMLByte*)xml_str, strlen(xml_str), "memory");
+        MemBufInputSource input((const XMLByte*)xml_str, RSTRING_LEN(str), "memory");
+        // Parsing is synchronous and holds the GVL, so the Ruby string stays
+        // valid until the stream is finished. Avoid copying the entire input.
+        input.setCopyBufToStream(false);
         parser->parse(input);
 
         DOMDocument* doc = parser->getDocument();
@@ -819,17 +830,20 @@ static VALUE document_to_s(VALUE self) {
 
     try {
         DOMImplementation* impl = DOMImplementationRegistry::getDOMImplementation(XStr("LS").unicodeForm());
-        DOMLSSerializer* serializer = ((DOMImplementationLS*)impl)->createLSSerializer();
+        MemBufFormatTarget target;
+        std::unique_ptr<DOMLSSerializer, DOMRelease> serializer(
+            ((DOMImplementationLS*)impl)->createLSSerializer());
+        std::unique_ptr<DOMLSOutput, DOMRelease> output(
+            ((DOMImplementationLS*)impl)->createLSOutput());
+        output->setEncoding(XStr("UTF-8").unicodeForm());
+        output->setByteStream(&target);
 
-        XMLCh* xml_str = serializer->writeToString(wrapper->doc);
-        CharStr utf8_str(xml_str);
-
-        VALUE result = rb_str_new_cstr(utf8_str.localForm());
-
-        XMLString::release(&xml_str);
-        serializer->release();
-
-        return result;
+        // Write UTF-8 bytes directly instead of allocating a UTF-16 document
+        // string, transcoding it back to bytes, and scanning for its length.
+        serializer->write(wrapper->doc, output.get());
+        output.reset();
+        serializer.reset();
+        return rb_utf8_str_new((const char*)target.getRawBuffer(), target.getLen());
     } catch (const DOMException& e) {
         CharStr message(e.getMessage());
         rb_raise(rb_eRuntimeError, "Failed to serialize document: %s", message.localForm());
@@ -976,8 +990,7 @@ static VALUE document_children(VALUE self) {
     // Pre-size array for better performance
     VALUE children = rb_ary_new_capa((long)count);
 
-    for (XMLSize_t i = 0; i < count; i++) {
-        DOMNode* child = child_nodes->item(i);
+    for (DOMNode* child = wrapper->doc->getFirstChild(); child; child = child->getNextSibling()) {
         rb_ary_push(children, wrap_node(child, self));
     }
 
@@ -999,14 +1012,25 @@ static VALUE document_element_children(VALUE self) {
     // Pre-size array (may be smaller than count, but good estimate)
     VALUE children = rb_ary_new_capa((long)count);
 
-    for (XMLSize_t i = 0; i < count; i++) {
-        DOMNode* child = child_nodes->item(i);
+    for (DOMNode* child = wrapper->doc->getFirstChild(); child; child = child->getNextSibling()) {
         if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
             rb_ary_push(children, wrap_node(child, self));
         }
     }
 
     return children;
+}
+
+// Shared endpoint traversal for document and node element access.
+static VALUE element_child(DOMNode* parent, VALUE doc_ref, bool last) {
+    // Walk from the requested end without counting all siblings first.
+    for (DOMNode* child = last ? parent->getLastChild() : parent->getFirstChild();
+         child; child = last ? child->getPreviousSibling() : child->getNextSibling()) {
+        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
+            return wrap_node(child, doc_ref);
+        }
+    }
+    return Qnil;
 }
 
 // document.first_element_child - returns first element child
@@ -1018,17 +1042,7 @@ static VALUE document_first_element_child(VALUE self) {
         return Qnil;
     }
 
-    DOMNodeList* child_nodes = wrapper->doc->getChildNodes();
-    XMLSize_t count = child_nodes->getLength();
-
-    for (XMLSize_t i = 0; i < count; i++) {
-        DOMNode* child = child_nodes->item(i);
-        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
-            return wrap_node(child, self);
-        }
-    }
-
-    return Qnil;
+    return element_child(wrapper->doc, self, false);
 }
 
 // document.last_element_child - returns last element child
@@ -1040,18 +1054,7 @@ static VALUE document_last_element_child(VALUE self) {
         return Qnil;
     }
 
-    DOMNodeList* child_nodes = wrapper->doc->getChildNodes();
-    XMLSize_t count = child_nodes->getLength();
-
-    // Search backwards for last element
-    for (XMLSize_t i = count; i > 0; i--) {
-        DOMNode* child = child_nodes->item(i - 1);
-        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
-            return wrap_node(child, self);
-        }
-    }
-
-    return Qnil;
+    return element_child(wrapper->doc, self, true);
 }
 
 #ifdef HAVE_XALAN
@@ -1104,12 +1107,10 @@ static XPath* get_or_compile_xpath(DocumentWrapper* doc_wrapper, XalanContext* c
     // Check cache
     auto it = doc_wrapper->xpath_cache_map->find(expr);
     if (it != doc_wrapper->xpath_cache_map->end()) {
-        // Cache hit - move to front (most recently used)
-        CompiledXPath* compiled = *(it->second);
-        doc_wrapper->xpath_cache_list->erase(it->second);
-        doc_wrapper->xpath_cache_list->push_front(compiled);
-        (*doc_wrapper->xpath_cache_map)[expr] = doc_wrapper->xpath_cache_list->begin();
-        return compiled->xpath;
+        // Splicing preserves the iterator and avoids allocating a list entry.
+        doc_wrapper->xpath_cache_list->splice(doc_wrapper->xpath_cache_list->begin(),
+                                             *doc_wrapper->xpath_cache_list, it->second);
+        return (*(it->second))->xpath;
     }
 
     // Cache miss - compile new XPath
@@ -1296,6 +1297,45 @@ static VALUE execute_xpath_with_xalan_first(DOMNode* context_node, const char* x
 }
 #endif
 
+#ifndef HAVE_XALAN
+// Keep the snapshot result semantics of xpath(), but allocate only one Ruby
+// node for first-match queries. Xerces' XPath subset need not support every
+// result type exposed by the DOM XPath API.
+static VALUE execute_xpath_with_xerces_first(DOMNode* context_node, const char* xpath_str, VALUE doc_ref) {
+    if (!context_node) return Qnil;
+
+    DocumentWrapper* wrapper;
+    TypedData_Get_Struct(doc_ref, DocumentWrapper, &document_type, wrapper);
+    try {
+        std::unique_ptr<DOMXPathNSResolver, DOMRelease> resolver(
+            wrapper->doc->createNSResolver(context_node));
+        XStr path(xpath_str);
+        std::unique_ptr<DOMXPathExpression, DOMRelease> expression(
+            wrapper->doc->createExpression(path.unicodeForm(), resolver.get()));
+        std::unique_ptr<DOMXPathResult, DOMRelease> result(expression->evaluate(
+            context_node, DOMXPathResult::ORDERED_NODE_SNAPSHOT_TYPE, NULL));
+
+        DOMNode* node = nullptr;
+        if (result->getSnapshotLength() > 0 && result->snapshotItem(0)) {
+            node = result->getNodeValue();
+        }
+        result.reset();
+        expression.reset();
+        resolver.reset();
+        return wrap_node(node, doc_ref);
+    } catch (const DOMXPathException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "XPath error: %s", message.localForm());
+    } catch (const DOMException& e) {
+        CharStr message(e.getMessage());
+        rb_raise(rb_eRuntimeError, "DOM error: %s", message.localForm());
+    } catch (...) {
+        rb_raise(rb_eRuntimeError, "Unknown XPath error");
+    }
+    return Qnil;
+}
+#endif
+
 // document.xpath(path)
 static VALUE document_xpath(VALUE self, VALUE path) {
     DocumentWrapper* doc_wrapper;
@@ -1310,8 +1350,9 @@ static VALUE document_xpath(VALUE self, VALUE path) {
     Check_Type(path, T_STRING);
     const char* xpath_str = StringValueCStr(path);
 
-    // Validate XPath expression before execution
+#ifndef HAVE_XALAN
     validate_xpath_expression(xpath_str);
+#endif
 
 #ifdef HAVE_XALAN
     // Use Xalan for full XPath 1.0 support
@@ -1389,8 +1430,9 @@ static VALUE document_at_xpath(VALUE self, VALUE path) {
     Check_Type(path, T_STRING);
     const char* xpath_str = StringValueCStr(path);
 
-    // Validate XPath expression before execution
+#ifndef HAVE_XALAN
     validate_xpath_expression(xpath_str);
+#endif
 
 #ifdef HAVE_XALAN
     // Use optimized first-only version
@@ -1400,16 +1442,7 @@ static VALUE document_at_xpath(VALUE self, VALUE path) {
     }
     return execute_xpath_with_xalan_first(root, xpath_str, self);
 #else
-    // Fall back to getting all results and returning first
-    VALUE nodeset = document_xpath(self, path);
-    NodeSetWrapper* wrapper;
-    TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
-
-    if (RARRAY_LEN(wrapper->nodes_array) == 0) {
-        return Qnil;
-    }
-
-    return rb_ary_entry(wrapper->nodes_array, 0);
+    return execute_xpath_with_xerces_first(doc_wrapper->doc->getDocumentElement(), xpath_str, self);
 #endif
 }
 
@@ -1448,16 +1481,7 @@ static VALUE document_at_css(VALUE self, VALUE selector) {
     }
     return execute_xpath_with_xalan_first(root, xpath_str.c_str(), self);
 #else
-    VALUE nodeset = document_css(self, selector);
-
-    NodeSetWrapper* wrapper;
-    TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
-
-    if (RARRAY_LEN(wrapper->nodes_array) == 0) {
-        return Qnil;
-    }
-
-    return rb_ary_entry(wrapper->nodes_array, 0);
+    return document_at_xpath(self, rb_str_new_cstr(xpath_str.c_str()));
 #endif
 }
 
@@ -1725,8 +1749,7 @@ static VALUE node_children(VALUE self) {
     // Pre-size array for better performance
     VALUE children = rb_ary_new_capa((long)count);
 
-    for (XMLSize_t i = 0; i < count; i++) {
-        DOMNode* child = child_nodes->item(i);
+    for (DOMNode* child = wrapper->node->getFirstChild(); child; child = child->getNextSibling()) {
         rb_ary_push(children, wrap_node(child, doc_ref));
     }
 
@@ -1749,8 +1772,7 @@ static VALUE node_element_children(VALUE self) {
     // Pre-size array (may be smaller than count, but good estimate)
     VALUE children = rb_ary_new_capa((long)count);
 
-    for (XMLSize_t i = 0; i < count; i++) {
-        DOMNode* child = child_nodes->item(i);
+    for (DOMNode* child = wrapper->node->getFirstChild(); child; child = child->getNextSibling()) {
         if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
             rb_ary_push(children, wrap_node(child, doc_ref));
         }
@@ -1768,18 +1790,7 @@ static VALUE node_first_element_child(VALUE self) {
         return Qnil;
     }
 
-    VALUE doc_ref = wrapper->doc_ref;
-    DOMNodeList* child_nodes = wrapper->node->getChildNodes();
-    XMLSize_t count = child_nodes->getLength();
-
-    for (XMLSize_t i = 0; i < count; i++) {
-        DOMNode* child = child_nodes->item(i);
-        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
-            return wrap_node(child, doc_ref);
-        }
-    }
-
-    return Qnil;
+    return element_child(wrapper->node, wrapper->doc_ref, false);
 }
 
 // node.last_element_child - returns last element child
@@ -1791,19 +1802,7 @@ static VALUE node_last_element_child(VALUE self) {
         return Qnil;
     }
 
-    VALUE doc_ref = wrapper->doc_ref;
-    DOMNodeList* child_nodes = wrapper->node->getChildNodes();
-    XMLSize_t count = child_nodes->getLength();
-
-    // Search backwards for last element
-    for (XMLSize_t i = count; i > 0; i--) {
-        DOMNode* child = child_nodes->item(i - 1);
-        if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
-            return wrap_node(child, doc_ref);
-        }
-    }
-
-    return Qnil;
+    return element_child(wrapper->node, wrapper->doc_ref, true);
 }
 
 // node.document - returns the document that owns this node
@@ -2186,11 +2185,7 @@ static VALUE node_inner_html(VALUE self) {
 
         // Build a string by serializing each child
         std::string result;
-        DOMNodeList* children = wrapper->node->getChildNodes();
-        XMLSize_t count = children->getLength();
-
-        for (XMLSize_t i = 0; i < count; i++) {
-            DOMNode* child = children->item(i);
+        for (DOMNode* child = wrapper->node->getFirstChild(); child; child = child->getNextSibling()) {
             XMLCh* xml_str = serializer->writeToString(child);
             CharStr utf8_str(xml_str);
             result += utf8_str.localForm();
@@ -2294,16 +2289,8 @@ static VALUE node_blank_p(VALUE self) {
 
     // Element nodes are blank if they have no child elements and no non-blank text
     if (wrapper->node->getNodeType() == DOMNode::ELEMENT_NODE) {
-        DOMNodeList* children = wrapper->node->getChildNodes();
-        XMLSize_t count = children->getLength();
-
-        if (count == 0) {
-            return Qtrue;
-        }
-
-        // Check if all children are blank text nodes
-        for (XMLSize_t i = 0; i < count; i++) {
-            DOMNode* child = children->item(i);
+        // Check if all children are blank text nodes.
+        for (DOMNode* child = wrapper->node->getFirstChild(); child; child = child->getNextSibling()) {
 
             // If there's an element child, not blank
             if (child->getNodeType() == DOMNode::ELEMENT_NODE) {
@@ -2348,8 +2335,9 @@ static VALUE node_xpath(VALUE self, VALUE path) {
     const char* xpath_str = StringValueCStr(path);
     VALUE doc_ref = node_wrapper->doc_ref;
 
-    // Validate XPath expression before execution
+#ifndef HAVE_XALAN
     validate_xpath_expression(xpath_str);
+#endif
 
 #ifdef HAVE_XALAN
     // Use Xalan for full XPath 1.0 support
@@ -2422,23 +2410,15 @@ static VALUE node_at_xpath(VALUE self, VALUE path) {
     const char* xpath_str = StringValueCStr(path);
     VALUE doc_ref = node_wrapper->doc_ref;
 
-    // Validate XPath expression before execution
+#ifndef HAVE_XALAN
     validate_xpath_expression(xpath_str);
+#endif
 
 #ifdef HAVE_XALAN
     // Use optimized first-only version
     return execute_xpath_with_xalan_first(node_wrapper->node, xpath_str, doc_ref);
 #else
-    // Fall back to getting all results and returning first
-    VALUE nodeset = node_xpath(self, path);
-    NodeSetWrapper* wrapper;
-    TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
-
-    if (RARRAY_LEN(wrapper->nodes_array) == 0) {
-        return Qnil;
-    }
-
-    return rb_ary_entry(wrapper->nodes_array, 0);
+    return execute_xpath_with_xerces_first(node_wrapper->node, xpath_str, doc_ref);
 #endif
 }
 
@@ -2463,15 +2443,7 @@ static VALUE node_at_css(VALUE self, VALUE selector) {
     // Use optimized first-only version
     return execute_xpath_with_xalan_first(node_wrapper->node, xpath_str.c_str(), doc_ref);
 #else
-    VALUE nodeset = node_css(self, selector);
-    NodeSetWrapper* wrapper;
-    TypedData_Get_Struct(nodeset, NodeSetWrapper, &nodeset_type, wrapper);
-
-    if (RARRAY_LEN(wrapper->nodes_array) == 0) {
-        return Qnil;
-    }
-
-    return rb_ary_entry(wrapper->nodes_array, 0);
+    return node_at_xpath(self, rb_str_new_cstr(xpath_str.c_str()));
 #endif
 }
 
