@@ -1,3 +1,7 @@
+## 0.7.1 - 22-Nov-2026
+* Improved native DOM traversal and serialization performance.
+* Path fix for FreeBSD.
+
 ## 0.7.0 - 3-Jan-2026
 * Added XPath validation to prevent XPath injection attacks, with checks for
   unbalanced quotes, dangerous functions, encoded characters, and injection patterns.
