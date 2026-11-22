@@ -1,5 +1,7 @@
 ## 0.7.1 - 22-Nov-2026
 * Improved native DOM traversal and serialization performance.
+* Reduced XPath overhead with reusable Xalan contexts and compiled expression caching.
+* Document serialization now returns UTF-8 with a matching XML encoding declaration.
 * Path fix for FreeBSD.
 
 ## 0.7.0 - 3-Jan-2026
