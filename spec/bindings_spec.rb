@@ -78,7 +78,11 @@ RSpec.describe 'Native binding operations' do
     expect(serialized.encoding).to eq(Encoding::UTF_8)
     expect(serialized).to be_valid_encoding
     expect(serialized).to include('encoding="UTF-8"')
-    expect(RXerces.XML(serialized).root.text.b).to eq(text.b)
+    round_trip = RXerces.XML(serialized)
+    expect(round_trip.root.text).to eq(text)
+    expect(round_trip.text).to eq(text)
+    expect(round_trip.root.text.encoding).to eq(Encoding::UTF_8)
+    expect(round_trip.text.encoding).to eq(Encoding::UTF_8)
   end
 
   it 'serializes non-UTF-8 input as correctly declared UTF-8' do

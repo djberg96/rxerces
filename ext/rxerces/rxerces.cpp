@@ -4,6 +4,7 @@
 #include <xercesc/parsers/XercesDOMParser.hpp>
 #include <xercesc/dom/DOM.hpp>
 #include <xercesc/util/XMLString.hpp>
+#include <xercesc/util/TransService.hpp>
 #include <xercesc/util/XMLUni.hpp>
 #include <xercesc/framework/MemBufInputSource.hpp>
 #include <xercesc/framework/MemBufFormatTarget.hpp>
@@ -936,8 +937,8 @@ static VALUE document_text(VALUE self) {
         return rb_str_new_cstr("");
     }
 
-    CharStr utf8_content(content);
-    return rb_str_new_cstr(utf8_content.localForm());
+    TranscodeToStr utf8_content(content, "UTF-8");
+    return rb_utf8_str_new((const char*)utf8_content.str(), utf8_content.length());
 }
 
 // document.create_element(name)
@@ -1640,8 +1641,8 @@ static VALUE node_text(VALUE self) {
         return rb_str_new_cstr("");
     }
 
-    CharStr utf8_content(content);
-    return rb_str_new_cstr(utf8_content.localForm());
+    TranscodeToStr utf8_content(content, "UTF-8");
+    return rb_utf8_str_new((const char*)utf8_content.str(), utf8_content.length());
 }
 
 // node.text = value
